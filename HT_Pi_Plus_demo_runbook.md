@@ -38,6 +38,13 @@ ssh hightorque@192.168.43.44
 
 优先方案：机器人端服务。
 
+在 Windows PowerShell / PyCharm 默认终端中，先部署：
+
+```powershell
+cd <你的项目目录>\robot_remote_web
+.\deploy_robot_agent.ps1 192.168.43.44 hightorque
+```
+
 在机器人上运行：
 
 ```bash

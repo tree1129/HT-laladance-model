@@ -38,6 +38,13 @@ cd <你的项目目录>/robot_remote_web
 bash deploy_robot_agent.sh 192.168.43.44 hightorque
 ```
 
+如果你使用的是 Windows PowerShell / PyCharm 默认终端，请运行：
+
+```powershell
+cd <你的项目目录>\robot_remote_web
+.\deploy_robot_agent.ps1 192.168.43.44 hightorque
+```
+
 部署后在机器人上启动：
 
 ```bash
