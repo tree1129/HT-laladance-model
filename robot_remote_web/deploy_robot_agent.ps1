@@ -30,9 +30,23 @@ if (-not $Scp) {
 $Remote = "$RobotUser@$RobotHost"
 $RemoteTarget = $Remote + ":" + $RemoteBase + "/"
 
+function Invoke-NativeChecked {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Arguments
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($Arguments -join ' ')"
+    }
+}
+
 Write-Host "Deploying robot agent to ${Remote}:$RemoteBase"
-& $Ssh.Source $Remote "mkdir -p '$RemoteBase'"
-& $Scp.Source -r $AgentDir $RemoteTarget
+Invoke-NativeChecked $Ssh.Source $Remote "mkdir -p '$RemoteBase'"
+Invoke-NativeChecked $Scp.Source -r $AgentDir $RemoteTarget
 
 Write-Host ""
 Write-Host "Deployment finished."
