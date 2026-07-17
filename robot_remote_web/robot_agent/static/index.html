@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HT Pi Plus 机器人端遥控器</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">HT Pi Plus On Robot</p>
+          <h1>机器人端遥控器</h1>
+          <p class="subtitle">页面和控制接口运行在机器人本机，浏览器访问机器人 IP 即可控制。先验证急停，再做低速移动和动作测试。</p>
+        </div>
+        <div class="status-card">
+          <div class="status-line"><span>服务</span><strong id="robot-host">机器人本机</strong></div>
+          <div class="status-line"><span>控制链路</span><strong id="bridge-status">机器人本机 Joy</strong></div>
+          <div class="status-line"><span>状态</span><strong id="status-text">就绪</strong></div>
+          <div class="hero-actions">
+            <button id="cheer-btn" class="hero-btn accent">双手欢呼</button>
+            <button id="choreo-btn" class="hero-btn">安全啦啦操编排</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>方向控制</h2>
+            <div class="quick-actions">
+              <button id="wake-btn" class="ghost">唤醒运动模式</button>
+              <button id="stop-btn" class="ghost danger">急停</button>
+            </div>
+          </div>
+          <div class="keyboard-hint">
+            <span><code>W/A/S/D</code> 前后左右</span>
+            <span><code>Q/E</code> 转向</span>
+            <span><code>R</code> 安全原地踏步</span>
+            <span><code>Space</code> 急停</span>
+            <span><code>C</code> 双手欢呼</span>
+          </div>
+          <div class="drive-pad">
+            <button data-move="forward" class="pad-btn">低速前进</button>
+            <button data-move="left" class="pad-btn">低速左移</button>
+            <button data-move="stop" class="pad-btn center">停止</button>
+            <button data-move="right" class="pad-btn">低速右移</button>
+            <button data-move="backward" class="pad-btn">低速后退</button>
+            <button data-move="turn-left" class="pad-btn slim">低速左转</button>
+            <button data-move="turn-right" class="pad-btn slim">低速右转</button>
+            <button data-move="march-toggle" id="march-btn" class="pad-btn accent wide">安全原地踏步</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>动作库</h2>
+            <span class="badge" id="action-count">0</span>
+          </div>
+          <div class="library-block">
+            <h3>策略动作</h3>
+            <div id="policy-list" class="action-list"></div>
+          </div>
+          <div class="library-block">
+            <h3>单段动作</h3>
+            <div id="waypoint-list" class="action-list"></div>
+          </div>
+          <div class="library-block">
+            <h3>串联动作</h3>
+            <div id="series-list" class="action-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-head">
+          <h2>执行日志</h2>
+        </div>
+        <pre id="log-output"></pre>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
