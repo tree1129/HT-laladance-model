@@ -1,10 +1,15 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "停止本地远程服务..."
-pkill -f "python3 server.py" || true
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "Stopping local virtual remote if it is running..."
+pkill -f "${SCRIPT_DIR}/server.py" || true
+pkill -f "robot_remote_web/server.py" || true
 sleep 1
 
-echo "启动本地远程服务..."
-cd "$(dirname "$0")"
-python3 server.py
+echo "Starting local virtual remote from ${SCRIPT_DIR}..."
+cd "$SCRIPT_DIR"
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 server.py
+fi
+exec python server.py

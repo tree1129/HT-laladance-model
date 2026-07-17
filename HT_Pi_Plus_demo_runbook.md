@@ -56,8 +56,8 @@ http://192.168.43.44:8766
 在电脑当前项目目录运行：
 
 ```powershell
-cd F:\AAArobotics\HT_Pi_plus_laladance\robot_remote_web
-python server.py
+cd <你的项目目录>\robot_remote_web
+.\start_remote.ps1
 ```
 
 然后浏览器打开：

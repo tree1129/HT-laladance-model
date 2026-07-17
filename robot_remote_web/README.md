@@ -1,136 +1,141 @@
-# 虚拟遥控器
+# HT Pi Plus 虚拟遥控器
 
-这是一个运行在 **PC 端** 的 `HT Pi Plus / Mini Pi Plus` 虚拟遥控器。
+这是用于 HT Pi Plus / Mini Pi Plus 啦啦操 Demo 的网页遥控器。
 
-## 代码目录
+核心思路：
+
+```text
+键盘/网页按钮 -> HTTP 接口 -> /joy_input -> 机器人官方控制器 -> 机器人运动
+```
+
+也就是说，它不是直接控制每个电机，而是模拟手柄输入。这样更适合三天内做稳定 Demo。
+
+## 目录结构
 
 ```text
 robot_remote_web/
-├── config.json
-├── server.py
-├── start_remote.sh
-├── README.md
-└── static/
-    ├── index.html
-    ├── styles.css
-    └── app.js
+├── config.json                 # PC 端配置
+├── server.py                   # PC 端本地服务，可作为 SSH 代理
+├── start_remote.ps1            # Windows PowerShell 启动脚本
+├── start_remote.sh             # Bash 启动脚本
+├── deploy_robot_agent.sh       # 部署机器人端服务
+├── static/                     # PC 端网页
+└── robot_agent/                # 机器人端服务，推荐优先使用
 ```
 
-## 哪些文件在你的 PC 上
+## 推荐运行方式
 
-这些都是我给你做的、跑在电脑上的代码：
+优先使用机器人端服务。
 
-- [config.json](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/config.json:1)
-- [server.py](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/server.py:1)
-- [start_remote.sh](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/start_remote.sh:1)
-- [static/index.html](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/static/index.html:1)
-- [static/styles.css](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/static/styles.css:1)
-- [static/app.js](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/static/app.js:1)
+原因：机器人端服务直接在机器人本机发布 `/joy_input`，不依赖 PC 端 SSH 密码交互，也不受 PC 路径影响。
 
-## 机器人上有没有新放文件
+### 1. 部署机器人端服务
 
-默认情况下没有自动部署。
-
-但我已经给你准备好了机器人端服务目录：
-
-- [robot_agent](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/robot_agent/README.md:1)
-
-建议你把它部署到机器人：
+在能执行 `ssh` 和 `rsync` 的终端里运行：
 
 ```bash
-/home/hightorque/robot_remote_web_agent
+cd <你的项目目录>/robot_remote_web
+bash deploy_robot_agent.sh 192.168.43.44 hightorque
 ```
 
-这样后面就是：
-
-- 机器人本机运行 `server_robot.py`
-- PC 页面直接请求机器人 `http://192.168.43.44:8766`
-- 只有机器人端服务不可用时，PC 才回退到本地 SSH 代理模式
-
-## 机器人端实际复用的现有代码
-
-关键是这些：
-
-- [humanoid_controller.py](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/robot_driver/src/controllers/humanoid_controller.py:1)
-  作用：机器人真实控制链路，订阅 `/joy_input`
-
-- [params.yaml](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/robot_driver/config/params.yaml:1)
-  作用：`humanoid_driver` 参数
-
-- [joy.yaml](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/sim2real_master/joy.yaml:1)
-  作用：真实遥控器按键/轴映射
-
-- [joy_footstep.yaml](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/sim2real_master/joy_footstep.yaml:1)
-  作用：步态、模式切换映射
-
-- [base_policy.yaml](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/sim2real/action_config/config/pi_plus_22dof/base_policy.yaml:1)
-  作用：策略动作库
-
-- [base_waypoint.yaml](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/sim2real/action_config/config/pi_plus_22dof/base_waypoint.yaml:1)
-  作用：单段动作库
-
-- [custom_action.yaml](/Users/tree/Desktop/高擎小pi-啦啦操/sim2real_master/src/sim2real/action_config/config/pi_plus_22dof/custom_action.yaml:1)
-  作用：动作和真实遥控器按键组合映射
-
-## 当前控制链路
-
-### PC 端
-
-- 页面：`static/index.html`
-- 交互逻辑：`static/app.js`
-- 本地服务：`server.py`
-
-### 机器人端
-
-- `server.py` 通过 SSH 登录机器人
-- 在机器人上发布 ROS 命令
-- 运动控制现在优先模拟 **真实遥控器 `sensor_msgs/Joy`**
-- 也就是走：
-  `PC页面 -> server.py -> SSH -> /joy_input -> humanoid_driver -> 机器人`
-
-## 配置文件怎么改
-
-如果后面你要换机器人 IP、账号、动作配置路径，优先改这里：
-
-- [config.json](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/config.json:1)
-
-## 启动
+部署后在机器人上启动：
 
 ```bash
-cd /Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web
-python3 server.py
+ssh hightorque@192.168.43.44
+cd /home/hightorque/robot_remote_web_agent/robot_agent
+bash start_robot_agent.sh
 ```
 
-或者：
+浏览器打开：
+
+```text
+http://192.168.43.44:8766
+```
+
+### 2. PC 端备用方式
+
+如果暂时不能部署机器人端服务，可以在 PC 上启动本地服务：
+
+Windows PowerShell：
+
+```powershell
+cd <你的项目目录>\robot_remote_web
+.\start_remote.ps1
+```
+
+Bash / Git Bash / WSL：
 
 ```bash
-cd /Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web
-./start_remote.sh
+cd /path/to/HT_Pi_plus_laladance/robot_remote_web
+bash start_remote.sh
 ```
 
-打开：
+浏览器打开：
 
-[`http://127.0.0.1:8765`](http://127.0.0.1:8765)
+```text
+http://127.0.0.1:8765
+```
 
-## 停止
+注意：PC 端 SSH 代理如果没有 `expect`，会尝试免密 SSH。没有配置 SSH key 时，建议改用机器人端服务。
+
+## 配置文件
+
+主要配置在 `config.json`：
+
+- `robot.host`：机器人 IP，默认 `192.168.43.44`
+- `robot.user`：机器人用户名，默认 `hightorque`
+- `robot_agent.base_url`：机器人端服务地址
+- `paths`：动作 YAML 的相对路径
+
+动作配置路径不再依赖固定电脑目录。程序会按下面顺序搜索：
+
+1. 环境变量 `HT_PI_PLUS_WORKSPACE`
+2. 环境变量 `HT_PI_PLUS_PROJECT_ROOT`
+3. 环境变量 `SIM2REAL_ROOT`
+4. 当前项目目录
+5. `robot_remote_web` 目录
+6. 当前运行目录
+
+如果本地没有动作 YAML，网页仍能启动，走路、停止、唤醒仍可测试；动作库会显示为空并在日志里提示原因。
+
+## 网页按键
+
+- `W/A/S/D`：低速前后左右
+- `Q/E`：低速转向
+- `R`：安全原地踏步开关
+- `C`：双手欢呼动作
+- `Space`：急停
+
+网页按钮：
+
+- “唤醒运动模式”：尝试让机器人进入可运动状态。
+- “急停”：立即清除移动循环并发送停止。
+- “安全原地踏步”：用于第一版啦啦操 Demo 的保守下肢动作。
+- “安全啦啦操编排”：短序列，先踏步，再触发 `cheer`，再慢速前进，再停止。
+
+## 推荐测试顺序
+
+不要跳步：
+
+1. 打开网页。
+2. 点击“急停”。
+3. 点击“唤醒运动模式”。
+4. 短按“低速前进”，马上松开。
+5. 按 `Space` 急停。
+6. 按 `R` 测试安全原地踏步，再按 `Space` 停止。
+7. 点击“双手欢呼”。
+8. 前面都稳定后，再点击“安全啦啦操编排”。
+
+## 回退
+
+本项目已经建立 Git 仓库。路径修复前的基线提交是：
+
+```text
+c4d20da baseline before path fixes
+```
+
+如需回退到这版，先确认没有需要保留的新改动，再执行：
 
 ```bash
-pkill -f 'robot_remote_web/server.py'
+git checkout c4d20da -- .
 ```
-
-## 维护建议
-
-你后面维护时，可以按这个分工找文件：
-
-- 改机器人地址和账号：
-  - [config.json](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/config.json:1)
-
-- 改页面长相：
-  - [static/index.html](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/static/index.html:1)
-  - [static/styles.css](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/static/styles.css:1)
-
-- 改按钮、键盘、动作编排：
-  - [static/app.js](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/static/app.js:1)
-
-- 改 SSH、ROS 发布、动作触发逻辑：
-  - [server.py](/Users/tree/Desktop/高擎小pi-啦啦操/robot_remote_web/server.py:1)

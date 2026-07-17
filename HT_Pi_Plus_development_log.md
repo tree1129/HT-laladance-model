@@ -145,3 +145,50 @@ http://127.0.0.1:8765/api/config
 - 机器人端是否已经启动官方 ROS 控制程序。
 - `/joy_input` 是否确实是当前机器人控制链路使用的话题。
 - `cheer` 动作名是否存在于机器人动作 YAML 中。
+
+## 2026-07-17 路径无关修复
+
+### 本次目标
+
+解决源代码和 README 中残留的师兄电脑绝对路径问题，让项目放在不同目录也能启动。
+
+### 已保存版本
+
+路径修复前已经做了一次 Git 基线提交：
+
+```text
+c4d20da baseline before path fixes
+```
+
+如果路径修复后想退回，可以使用 Git 回到这次提交。
+
+### 修改内容
+
+- `robot_remote_web/start_remote.sh` 不再 `cd` 到旧 Mac 目录，而是自动进入脚本所在目录。
+- 新增 `robot_remote_web/start_remote.ps1`，用于 Windows PowerShell 从任意项目路径启动。
+- `robot_remote_web/restart_remote.sh` 改为基于脚本所在目录重启。
+- `robot_remote_web/deploy_robot_agent.sh` 改为无旧路径、无乱码提示，并允许传入机器人 IP、用户名和远端目录。
+- `robot_remote_web/server.py` 重写为干净版本：
+  - 动作 YAML 路径按环境变量和当前项目位置搜索。
+  - 支持 `HT_PI_PLUS_WORKSPACE`、`HT_PI_PLUS_PROJECT_ROOT`、`SIM2REAL_ROOT`。
+  - 不再写死 `/usr/bin/expect`，会自动查找 `expect`；没有 `expect` 时尝试系统 `ssh`。
+  - 继续保持原来的 HTTP API。
+- `robot_remote_web/README.md` 和 `robot_remote_web/robot_agent/README.md` 改成中文可读版本，不再引用旧电脑路径。
+- `HT_Pi_Plus_demo_runbook.md` 改成 `<你的项目目录>` 形式，避免路径过期。
+
+### 已执行检查
+
+```bash
+python -m py_compile robot_remote_web/server.py robot_remote_web/robot_agent/server_robot.py
+node --check robot_remote_web/static/app.js
+node --check robot_remote_web/robot_agent/static/app.js
+```
+
+结果：通过。
+
+还验证了：
+
+- `start_remote.ps1` PowerShell 语法解析通过。
+- 旧路径关键字搜索无结果。
+- 从 `robot_remote_web` 目录直接启动 `server.py` 后，`/api/config` 返回 `200`。
+- `/api/config` 返回给浏览器的机器人字段不包含 `password`。

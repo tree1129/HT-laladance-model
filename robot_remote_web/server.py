@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 import json
 import os
+import shutil
 import shlex
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-
-import time
+from urllib.parse import urlparse
 
 try:
     import yaml
@@ -25,11 +24,57 @@ APP_CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 HOST = APP_CONFIG["server"]["host"]
 PORT = APP_CONFIG["server"]["port"]
 ROBOT_CONFIG = APP_CONFIG["robot"]
+PATHS_CONFIG = APP_CONFIG.get("paths", {})
 
-ACTION_BASE = WORKSPACE / APP_CONFIG["paths"]["action_config_root"]
-BASE_POLICY = WORKSPACE / APP_CONFIG["paths"]["base_policy"]
-BASE_WAYPOINT = WORKSPACE / APP_CONFIG["paths"]["base_waypoint"]
-CUSTOM_ACTION = WORKSPACE / APP_CONFIG["paths"]["custom_action"]
+
+def unique_paths(paths):
+    seen = set()
+    result = []
+    for path in paths:
+        resolved = Path(path).expanduser()
+        key = str(resolved)
+        if key not in seen:
+            seen.add(key)
+            result.append(resolved)
+    return result
+
+
+def workspace_roots():
+    roots = []
+    for env_name in ("HT_PI_PLUS_WORKSPACE", "HT_PI_PLUS_PROJECT_ROOT", "SIM2REAL_ROOT"):
+        value = os.environ.get(env_name)
+        if value:
+            roots.append(Path(value))
+    roots.extend([WORKSPACE, ROOT, Path.cwd()])
+    return unique_paths(roots)
+
+
+def candidate_config_paths(config_value: str):
+    configured = Path(config_value).expanduser()
+    if configured.is_absolute():
+        return [configured]
+
+    candidates = []
+    for base in workspace_roots():
+        candidates.append(base / configured)
+        # Allows SIM2REAL_ROOT to point directly at the sim2real_master directory.
+        if configured.parts and configured.parts[0] == "sim2real_master":
+            candidates.append(base / Path(*configured.parts[1:]))
+    return unique_paths(candidates)
+
+
+def resolve_config_path(config_value: str):
+    candidates = candidate_config_paths(config_value)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+ACTION_BASE = resolve_config_path(PATHS_CONFIG["action_config_root"])
+BASE_POLICY = resolve_config_path(PATHS_CONFIG["base_policy"])
+BASE_WAYPOINT = resolve_config_path(PATHS_CONFIG["base_waypoint"])
+CUSTOM_ACTION = resolve_config_path(PATHS_CONFIG["custom_action"])
 
 
 def load_yaml(path: Path):
@@ -51,7 +96,6 @@ def empty_action_catalog(load_error: str = ""):
 
 def build_action_catalog():
     catalog = empty_action_catalog()
-
     try:
         base_policy = load_yaml(BASE_POLICY)
         base_waypoint = load_yaml(BASE_WAYPOINT)
@@ -102,7 +146,9 @@ def tcl_escape(text: str) -> str:
 
 
 def run_ssh_command(remote_command: str):
-    expect_script = f'''
+    expect_bin = shutil.which("expect")
+    if expect_bin:
+        expect_script = f'''
 set timeout 20
 spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {ROBOT_CONFIG["user"]}@{ROBOT_CONFIG["host"]} "{tcl_escape(remote_command)}"
 expect {{
@@ -111,12 +157,30 @@ expect {{
 }}
 expect eof
 '''
-    result = subprocess.run(
-        ["/usr/bin/expect", "-c", expect_script],
-        capture_output=True,
-        text=True,
-        cwd=str(WORKSPACE),
-    )
+        result = subprocess.run(
+            [expect_bin, "-c", expect_script],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+    else:
+        ssh_bin = shutil.which("ssh")
+        if not ssh_bin:
+            return {
+                "ok": False,
+                "code": 127,
+                "stdout": "",
+                "stderr": "未找到 ssh 命令。建议优先部署机器人端服务，或安装 OpenSSH/Git Bash/WSL。",
+                "remote_command": remote_command,
+            }
+        target = ROBOT_CONFIG.get("host_alias") or f'{ROBOT_CONFIG["user"]}@{ROBOT_CONFIG["host"]}'
+        result = subprocess.run(
+            [ssh_bin, "-o", "BatchMode=yes", target, remote_command],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+
     return {
         "ok": result.returncode == 0,
         "code": result.returncode,
@@ -163,24 +227,6 @@ def repeat_cmd_vel(vx: float, vy: float, wz: float, repeat: int, sleep_s: float)
     return run_ssh_command(ros_remote_command(remote))
 
 
-def publish_joy_input(axes=None, buttons=None):
-    axes = axes or [0.0] * 8
-    buttons = buttons or [0] * 11
-    axes_text = ", ".join(str(v) for v in axes)
-    buttons_text = ", ".join(str(v) for v in buttons)
-    cmd = (
-        "rostopic pub -1 /joy_input sensor_msgs/Joy "
-        + shlex.quote(
-            "{header: {stamp: now, frame_id: ''}, axes: ["
-            + axes_text
-            + "], buttons: ["
-            + buttons_text
-            + "]}"
-        )
-    )
-    return run_ssh_command(ros_remote_command(cmd))
-
-
 def publish_joy_input_stream(axes=None, buttons=None, duration=0.3, interval=0.06):
     axes = axes or [0.0] * 8
     buttons = buttons or [0] * 11
@@ -203,9 +249,6 @@ def publish_joy_input_stream(axes=None, buttons=None, duration=0.3, interval=0.0
 
 
 def wake_running_mode():
-    # 对照 joy_footstep.yaml:
-    # button 4 -> running_standby_switch
-    # button 9 -> standby
     buttons = [0] * 11
     buttons[4] = 1
     return publish_joy_input_stream(buttons=buttons, duration=0.25, interval=0.08)
@@ -259,8 +302,7 @@ def action_key_profiles(name: str):
         if not profile:
             continue
         for section in ("policy_change_config", "multi_waypoint_config", "series_waypoint_config"):
-            items = profile.get(section) or []
-            for item in items:
+            for item in profile.get(section) or []:
                 if item.get("name") == name:
                     matches.append(
                         {
@@ -276,10 +318,7 @@ def action_key_profiles(name: str):
 def run_named_action(name: str):
     section, item = resolve_action(name)
     if not item:
-        return {
-            "ok": False,
-            "error": f"未找到动作: {name}",
-        }
+        return {"ok": False, "error": f"未找到动作: {name}"}
 
     profiles = action_key_profiles(name)
     detail = {
@@ -289,12 +328,7 @@ def run_named_action(name: str):
         "profiles": profiles,
     }
 
-    selected_profile = None
-    for profile in profiles:
-        if profile.get("key"):
-            selected_profile = profile
-            break
-
+    selected_profile = next((profile for profile in profiles if profile.get("key")), None)
     if selected_profile and selected_profile.get("key"):
         key_tokens = [token.strip().lower() for token in selected_profile["key"].split("+") if token.strip()]
         ssh_result = trigger_action_keys(key_tokens)
@@ -312,7 +346,7 @@ def run_named_action(name: str):
         "detail": detail,
         "transport": transport,
         "ssh": ssh_result,
-        "hint": selected_profile["key"] if selected_profile else "未找到对应按键映射，已退回字符串动作指令。",
+        "hint": selected_profile["key"] if selected_profile else "未找到对应按键映射，已回退到字符串动作指令。",
     }
 
 
@@ -320,22 +354,16 @@ def run_choreography():
     steps = []
 
     def record(step_name, result):
-        steps.append({
-            "step": step_name,
-            "ok": result.get("ok", False),
-            "result": result,
-        })
+        steps.append({"step": step_name, "ok": result.get("ok", False), "result": result})
         return result.get("ok", False)
 
     record("wake_running_mode", wake_running_mode())
-
     for index in range(4):
         direction = 0.28 if index % 2 == 0 else -0.28
         record(
             f"safe_march_{index + 1:02d}",
             repeat_cmd_vel(0.03, 0.0, direction, repeat=2, sleep_s=0.22),
         )
-
     record("double_hand_cheer", run_named_action("cheer"))
     record("slow_forward", repeat_cmd_vel(0.10, 0.0, 0.0, repeat=4, sleep_s=0.22))
     record("double_hand_cheer_repeat", run_named_action("cheer"))
@@ -411,12 +439,13 @@ class Handler(BaseHTTPRequestHandler):
             payload = {}
 
         if parsed.path == "/api/move":
-            vx = float(payload.get("vx", 0.0))
-            vy = float(payload.get("vy", 0.0))
-            wz = float(payload.get("wz", 0.0))
-            duration = float(payload.get("duration", 0.25))
-            interval = float(payload.get("interval", 0.06))
-            result = joy_move(vx, vy, wz, duration=duration, interval=interval)
+            result = joy_move(
+                float(payload.get("vx", 0.0)),
+                float(payload.get("vy", 0.0)),
+                float(payload.get("wz", 0.0)),
+                duration=float(payload.get("duration", 0.25)),
+                interval=float(payload.get("interval", 0.06)),
+            )
             return self._send_json({"ok": result["ok"], "result": result})
 
         if parsed.path == "/api/stop":
@@ -447,6 +476,7 @@ def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Virtual remote started: http://{HOST}:{PORT}")
     print(f"Robot target: {ROBOT_CONFIG['user']}@{ROBOT_CONFIG['host']}")
+    print(f"Action config root: {ACTION_BASE}")
     server.serve_forever()
 
 
