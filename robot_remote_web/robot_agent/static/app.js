@@ -7,15 +7,16 @@ const state = {
   wakeAttempted: false,
   lastMoveSignature: "",
   marchPhase: 1,
+  moveRequestInFlight: false,
 };
 
 const moveMap = {
-  forward: { vx: 0.12, vy: 0.0, wz: 0.0 },
-  backward: { vx: -0.08, vy: 0.0, wz: 0.0 },
-  left: { vx: 0.0, vy: 0.08, wz: 0.0 },
-  right: { vx: 0.0, vy: -0.08, wz: 0.0 },
-  "turn-left": { vx: 0.0, vy: 0.0, wz: 0.35 },
-  "turn-right": { vx: 0.0, vy: 0.0, wz: -0.35 },
+  forward: { vx: 0.08, vy: 0.0, wz: 0.0 },
+  backward: { vx: -0.05, vy: 0.0, wz: 0.0 },
+  left: { vx: 0.0, vy: 0.05, wz: 0.0 },
+  right: { vx: 0.0, vy: -0.05, wz: 0.0 },
+  "turn-left": { vx: 0.0, vy: 0.0, wz: 0.22 },
+  "turn-right": { vx: 0.0, vy: 0.0, wz: -0.22 },
   stop: { vx: 0.0, vy: 0.0, wz: 0.0 },
 };
 
@@ -52,7 +53,7 @@ async function requestJson(path, payload = null, method = "POST") {
   }
   const res = await fetch(path, options);
   const data = await res.json();
-  if (!res.ok || data.ok === false) throw new Error(data.error || "请求失败");
+  if (!res.ok || data.ok === false) throw new Error(data.error || "request failed");
   return data;
 }
 
@@ -125,13 +126,16 @@ async function wakeRobot() {
 async function sendCmd(vector) {
   return (vector.vx === 0 && vector.vy === 0 && vector.wz === 0)
     ? api("/api/stop")
-    : api("/api/move", { ...vector, repeat: 4 });
+    : api("/api/move", { ...vector, repeat: 3 });
 }
 
 async function sendVector(vector, reason, options = {}) {
   const signature = JSON.stringify(vector);
   if (!options.force && signature === state.lastMoveSignature) return;
+  if (!options.stop && state.moveRequestInFlight) return;
+
   state.lastMoveSignature = signature;
+  state.moveRequestInFlight = true;
   try {
     const result = await sendCmd(vector);
     setStatus(reason);
@@ -140,6 +144,8 @@ async function sendVector(vector, reason, options = {}) {
     state.lastMoveSignature = "";
     setStatus("控制失败");
     log(`运动控制失败: ${reason}`, err.message);
+  } finally {
+    state.moveRequestInFlight = false;
   }
 }
 
@@ -166,7 +172,7 @@ function emergencyStop(reason = "急停") {
   stopPointerHoldLoop();
   state.lastMoveSignature = "";
   setStatus(`${reason}中`);
-  sendVector(moveMap.stop, reason, { force: true });
+  sendVector(moveMap.stop, reason, { force: true, stop: true });
 }
 
 function getCurrentVector() {
@@ -180,9 +186,9 @@ function getCurrentVector() {
   if (state.pressedKeys.has("KeyQ")) wz += moveMap["turn-left"].wz;
   if (state.pressedKeys.has("KeyE")) wz += moveMap["turn-right"].wz;
   return {
-    vx: Math.max(-0.12, Math.min(0.12, vx)),
-    vy: Math.max(-0.08, Math.min(0.08, vy)),
-    wz: Math.max(-0.35, Math.min(0.35, wz)),
+    vx: Math.max(-0.08, Math.min(0.08, vx)),
+    vy: Math.max(-0.05, Math.min(0.05, vy)),
+    wz: Math.max(-0.22, Math.min(0.22, wz)),
   };
 }
 
@@ -195,7 +201,7 @@ function refreshMoveLoop() {
   }
   const tick = () => sendVector(getCurrentVector(), `键盘移动 ${activeKeys.map((code) => keyMoveMap[code]).join("+")}`, { force: true });
   tick();
-  state.moveLoop = setInterval(tick, 180);
+  state.moveLoop = setInterval(tick, 240);
 }
 
 async function toggleMarchMode() {
@@ -210,12 +216,12 @@ async function toggleMarchMode() {
   state.marchPhase = 1;
   document.getElementById("march-btn")?.classList.add("active");
   const tick = () => {
-    const vector = { vx: 0.03, vy: 0.0, wz: state.marchPhase > 0 ? 0.28 : -0.28 };
+    const vector = { vx: 0.02, vy: 0.0, wz: state.marchPhase > 0 ? 0.18 : -0.18 };
     state.marchPhase *= -1;
     sendVector(vector, "安全原地踏步", { force: true });
   };
   tick();
-  state.marchLoop = setInterval(tick, 240);
+  state.marchLoop = setInterval(tick, 300);
   setStatus("安全原地踏步中");
 }
 
@@ -227,7 +233,7 @@ async function startPointerHold(kind) {
   const vector = moveMap[kind];
   const tick = () => sendVector(vector, `按住控制 ${kind}`, { force: true });
   tick();
-  state.pointerHoldLoop = setInterval(tick, 180);
+  state.pointerHoldLoop = setInterval(tick, 240);
 }
 
 async function runChoreography() {
@@ -271,6 +277,7 @@ function bindKeyboard() {
     if (code === "Space") return emergencyStop("空格急停");
     if (code === "KeyR" && !event.repeat) return toggleMarchMode();
     if (code === "KeyC" && !event.repeat) return runNamedAction("cheer", "双手欢呼");
+    if (event.repeat || state.pressedKeys.has(code)) return;
     if (!state.wakeAttempted) await wakeRobot();
     if (state.marchLoop) stopMarchLoop();
     state.pressedKeys.add(code);
@@ -280,6 +287,7 @@ function bindKeyboard() {
   window.addEventListener("keyup", (event) => {
     const code = normalizeKeyCode(event);
     if (!code || ["Space", "KeyR", "KeyC"].includes(code)) return;
+    if (!state.pressedKeys.has(code)) return;
     state.pressedKeys.delete(code);
     refreshMoveLoop();
   });
