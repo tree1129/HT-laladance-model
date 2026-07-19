@@ -11,12 +11,12 @@ const state = {
 };
 
 const moveMap = {
-  forward: { vx: 0.08, vy: 0.0, wz: 0.0 },
-  backward: { vx: -0.05, vy: 0.0, wz: 0.0 },
-  left: { vx: 0.0, vy: 0.05, wz: 0.0 },
-  right: { vx: 0.0, vy: -0.05, wz: 0.0 },
-  "turn-left": { vx: 0.0, vy: 0.0, wz: 0.22 },
-  "turn-right": { vx: 0.0, vy: 0.0, wz: -0.22 },
+  forward: { vx: 0.35, vy: 0.0, wz: 0.0 },
+  backward: { vx: -0.30, vy: 0.0, wz: 0.0 },
+  left: { vx: 0.0, vy: 0.30, wz: 0.0 },
+  right: { vx: 0.0, vy: -0.30, wz: 0.0 },
+  "turn-left": { vx: 0.0, vy: 0.0, wz: 0.30 },
+  "turn-right": { vx: 0.0, vy: 0.0, wz: -0.30 },
   stop: { vx: 0.0, vy: 0.0, wz: 0.0 },
 };
 
@@ -126,7 +126,7 @@ async function wakeRobot() {
 async function sendCmd(vector) {
   return (vector.vx === 0 && vector.vy === 0 && vector.wz === 0)
     ? api("/api/stop")
-    : api("/api/move", { ...vector, repeat: 3 });
+    : api("/api/move", { ...vector, timeout: 0.7 });
 }
 
 async function sendVector(vector, reason, options = {}) {
@@ -186,9 +186,9 @@ function getCurrentVector() {
   if (state.pressedKeys.has("KeyQ")) wz += moveMap["turn-left"].wz;
   if (state.pressedKeys.has("KeyE")) wz += moveMap["turn-right"].wz;
   return {
-    vx: Math.max(-0.08, Math.min(0.08, vx)),
-    vy: Math.max(-0.05, Math.min(0.05, vy)),
-    wz: Math.max(-0.22, Math.min(0.22, wz)),
+    vx: Math.max(-0.30, Math.min(0.35, vx)),
+    vy: Math.max(-0.30, Math.min(0.30, vy)),
+    wz: Math.max(-0.30, Math.min(0.30, wz)),
   };
 }
 

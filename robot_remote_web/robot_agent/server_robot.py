@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -129,6 +130,55 @@ class RobotControlBridge:
     def __init__(self):
         rospy.init_node("pc_robot_remote_bridge", anonymous=True)
         self.joy_pub = rospy.Publisher("/joy_input", Joy, queue_size=1)
+        self._motion_lock = threading.Lock()
+        self._motion_axes = [0.0] * 8
+        self._motion_active = False
+        self._motion_deadline = 0.0
+        self._motion_thread = threading.Thread(target=self._publish_motion_loop, daemon=True)
+        self._motion_thread.start()
+
+    def _publish_motion_loop(self):
+        rate = rospy.Rate(16)
+        while not rospy.is_shutdown():
+            expired = False
+            with self._motion_lock:
+                if self._motion_active and time.monotonic() >= self._motion_deadline:
+                    self._motion_active = False
+                    self._motion_axes = [0.0] * 8
+                    expired = True
+                active = self._motion_active
+                axes = list(self._motion_axes)
+
+            if active or expired:
+                msg = Joy()
+                msg.header.stamp = rospy.Time.now()
+                msg.axes = axes
+                msg.buttons = [0] * 11
+                self.joy_pub.publish(msg)
+            rate.sleep()
+
+    @staticmethod
+    def movement_axes(vx, vy, wz):
+        axes = [0.0] * 8
+        axes[0] = max(-1.0, min(1.0, float(vy)))
+        axes[1] = max(-1.0, min(1.0, float(vx)))
+        axes[3] = max(-1.0, min(1.0, float(wz)))
+        return axes
+
+    def set_motion_target(self, vx, vy, wz, timeout=0.7):
+        axes = self.movement_axes(vx, vy, wz)
+        with self._motion_lock:
+            self._motion_axes = axes
+            self._motion_active = True
+            self._motion_deadline = time.monotonic() + max(0.2, float(timeout))
+        return {"ok": True, "axes": axes, "timeout": timeout}
+
+    def stop_motion(self):
+        with self._motion_lock:
+            self._motion_active = False
+            self._motion_axes = [0.0] * 8
+            self._motion_deadline = 0.0
+        return self.publish_joy(repeat=2)
 
     def publish_joy(self, axes=None, buttons=None, repeat=1):
         axes = axes or [0.0] * 8
@@ -144,12 +194,7 @@ class RobotControlBridge:
         return {"ok": True, "axes": axes, "buttons": buttons, "repeat": repeat}
 
     def joy_move(self, vx, vy, wz, repeat=4):
-        axes = [0.0] * 8
-        buttons = [0] * 11
-        axes[0] = float(vy)
-        axes[1] = float(vx)
-        axes[2] = float(wz)
-        return self.publish_joy(axes=axes, buttons=buttons, repeat=repeat)
+        return self.publish_joy(axes=self.movement_axes(vx, vy, wz), repeat=repeat)
 
     def wake_running_mode(self):
         buttons = [0] * 11
@@ -291,16 +336,16 @@ class Handler(BaseHTTPRequestHandler):
 
         with ACTION_LOCK:
             if parsed.path == "/api/move":
-                result = BRIDGE.joy_move(
+                result = BRIDGE.set_motion_target(
                     float(payload.get("vx", 0.0)),
                     float(payload.get("vy", 0.0)),
                     float(payload.get("wz", 0.0)),
-                    int(payload.get("repeat", 4)),
+                    float(payload.get("timeout", 0.7)),
                 )
                 return self._send_json({"ok": result["ok"], "result": result})
 
             if parsed.path == "/api/stop":
-                result = BRIDGE.joy_move(0.0, 0.0, 0.0, repeat=3)
+                result = BRIDGE.stop_motion()
                 return self._send_json({"ok": result["ok"], "result": result})
 
             if parsed.path == "/api/wake":
