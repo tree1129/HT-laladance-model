@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROBOT_HOST="${1:-192.168.43.44}"
+ROBOT_HOST="${1:-192.168.18.114}"
 ROBOT_USER="${2:-hightorque}"
 REMOTE_BASE="${3:-/home/${ROBOT_USER}/robot_remote_web_agent}"
 

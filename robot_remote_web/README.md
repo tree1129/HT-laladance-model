@@ -35,20 +35,20 @@ robot_remote_web/
 
 ```bash
 cd <你的项目目录>/robot_remote_web
-bash deploy_robot_agent.sh 192.168.43.44 hightorque
+bash deploy_robot_agent.sh 192.168.18.114 hightorque
 ```
 
 如果你使用的是 Windows PowerShell / PyCharm 默认终端，请运行：
 
 ```powershell
 cd <你的项目目录>\robot_remote_web
-.\deploy_robot_agent.ps1 192.168.43.44 hightorque
+.\deploy_robot_agent.ps1 192.168.18.114 hightorque
 ```
 
 部署后在机器人上启动：
 
 ```bash
-ssh hightorque@192.168.43.44
+ssh hightorque@192.168.18.114
 cd /home/hightorque/robot_remote_web_agent/robot_agent
 bash start_robot_agent.sh
 ```
@@ -56,7 +56,7 @@ bash start_robot_agent.sh
 浏览器打开：
 
 ```text
-http://192.168.43.44:8766
+http://192.168.18.114:8766
 ```
 
 ### 2. PC 端备用方式
@@ -89,7 +89,7 @@ http://127.0.0.1:8765
 
 主要配置在 `config.json`：
 
-- `robot.host`：机器人 IP，默认 `192.168.43.44`
+- `robot.host`：机器人 IP，默认 `192.168.18.114`
 - `robot.user`：机器人用户名，默认 `hightorque`
 - `robot_agent.base_url`：机器人端服务地址
 - `paths`：动作 YAML 的相对路径
@@ -111,6 +111,7 @@ http://127.0.0.1:8765
 - `Q/E`：低速转向
 - `R`：安全原地踏步开关
 - `C`：双手欢呼动作
+- `F`：播放一次自定义啦啦操上肢动作
 - `Space`：急停
 
 网页按钮：
@@ -119,6 +120,146 @@ http://127.0.0.1:8765
 - “急停”：立即清除移动循环并发送停止。
 - “安全原地踏步”：用于第一版啦啦操 Demo 的保守下肢动作。
 - “安全啦啦操编排”：短序列，先踏步，再触发 `cheer`，再慢速前进，再停止。
+
+## 重新示教和更换上肢动作
+
+如果不熟悉 TEACH 模式的进入、录制、保存和复现操作，请先查阅高擎动力官网的 Mini Pi Plus 示教模式教程。本节只说明示教完成后，如何把全身轨迹转换成可与行走配合的上肢轨迹。
+
+### 1. 保存示教文件
+
+TEACH 模式默认将最新动作保存为：
+
+```text
+/home/hightorque/sim2real_master/install/share/sim2real/action_config/test.boost
+```
+
+进入动作目录并确认文件：
+
+```bash
+ACTION=/home/hightorque/sim2real_master/install/share/sim2real/action_config
+cd "$ACTION"
+ls -lh --full-time test.boost
+```
+
+不要直接把原始文件命名为 `laladance_arm.boost`。TEACH 生成的文件通常是包含腿、手臂和头部的 `all/22` 全身轨迹，还没有去除下肢。先将其保留为：
+
+```bash
+mv test.boost laladance_all.boost
+```
+
+录制关键帧时，每个关键姿势只按一次记录键，不要长按，也不要录入大量重复姿势。关键帧过多会增大 `.boost` 文件、延长加载和播放时间，并让动作难以调试。第一版建议只保留完成动作所必需的关键姿势。
+
+### 2. 下载原始动作和官方参考动作
+
+在电脑 PowerShell 中运行：
+
+```powershell
+cd <你的项目目录>
+
+scp hightorque@<机器人IP>:/home/hightorque/sim2real_master/install/share/sim2real/action_config/cheer.boost `
+  .\robot_action_config\cheer.boost
+
+scp hightorque@<机器人IP>:/home/hightorque/sim2real_master/install/share/sim2real/action_config/laladance_all.boost `
+  .\robot_action_config\laladance_all.boost
+```
+
+`cheer.boost` 是官方上肢动作参考文件。当前机器人上的官方文件为 `arm_joint/8`，只包含 8 个手臂关节；TEACH 文件为 `all/22`，包含 12 个腿部关节、8 个手臂关节和 2 个头部关节。
+
+### 3. 使用 AI 工具转换为上肢动作
+
+本项目已经提供转换脚本：
+
+```powershell
+python .\robot_action_config\convert_all_to_arm_joint.py `
+  .\robot_action_config\laladance_all.boost `
+  .\robot_action_config\laladance_arm.boost
+```
+
+如果需要让 Codex 或其他能够读取本地文件的 AI 工具重新分析，可以将 `cheer.boost` 和 `laladance_all.boost` 一并提供，并使用下面的提示词：
+
+```text
+请比较 cheer.boost 和 laladance_all.boost 的 Boost 文本归档结构。
+cheer.boost 是机器人官方上肢动作参考，laladance_all.boost 是 Mini Pi Plus
+22DOF 示教生成的全身动作。请先确认文件类型、帧数和每帧维度，再判断 22 个
+关节的排列。目标是保留 laladance_all.boost 中的手臂动作，删除所有下肢和头部
+通道，生成与 cheer.boost 相同的 arm_joint/8 格式。
+
+要求：
+1. 不覆盖或修改两个输入文件；
+2. 对每个 all/22 轨迹点提取第 12-19 列共 8 个手臂关节值；
+3. 不插值、不缩放、不改变原始手臂数值和帧顺序；
+4. 输出文件命名为 laladance_arm.boost；
+5. 验证输出帧数与输入一致、每帧恰好 8 个值，并报告验证结果；
+6. 如果文件结构与上述假设不一致，停止转换并说明差异，不要猜测修改。
+```
+
+### 4. 确认机器人 IP
+
+背板显示的 `lo: 127.0.0.1` 是机器人访问自己的回环地址，不能供电脑连接。需要使用机器人 Wi-Fi 网卡在当前局域网中的地址。
+
+在机器人终端运行：
+
+```bash
+hostname -I
+ip -4 addr show
+```
+
+通常应选择 `wlan0` 或其他无线网卡下的地址，例如 `192.168.18.114`。电脑和机器人应连接同一个局域网，并在电脑 PowerShell 中确认：
+
+```powershell
+ping <机器人IP>
+```
+
+IP 变化后，部署命令、浏览器地址和项目配置中的旧 IP 都要相应更新。机器人端网页地址是：
+
+```text
+http://<机器人IP>:8766
+```
+
+### 5. 上传转换后的动作
+
+先在机器人终端备份当前动作配置：
+
+```bash
+ACTION=/home/hightorque/sim2real_master/install/share/sim2real/action_config
+CFG=$ACTION/config/pi_plus_22dof
+cp -a "$CFG/base_waypoint.yaml" \
+  "$CFG/base_waypoint.yaml.bak-$(date +%Y%m%d-%H%M%S)"
+```
+
+然后在电脑 PowerShell 上传转换后的动作和配置：
+
+```powershell
+scp .\robot_action_config\laladance_arm.boost `
+  hightorque@<机器人IP>:/home/hightorque/sim2real_master/install/share/sim2real/action_config/laladance_arm.boost
+
+scp .\robot_action_config\base_waypoint.yaml `
+  hightorque@<机器人IP>:/home/hightorque/sim2real_master/install/share/sim2real/action_config/config/pi_plus_22dof/base_waypoint.yaml
+```
+
+`base_waypoint.yaml` 中应包含：
+
+```yaml
+- name: "laladance"
+  path: "action_config/laladance_arm.boost"
+  loop: false
+```
+
+`loop: false` 表示按一次只播放一遍；改成 `true` 会循环播放。修改动作文件或 YAML 后应完整重启机器人，让官方控制程序重新加载配置。
+
+### 6. 真机验证和停止动作
+
+进入 DEFAULT/RUNNING 状态后，先由一人扶住机器人，再使用真实手柄按 `RT+X`。这可以直接验证新的啦啦操上肢动作是否已经被正确加载。确认只有手臂运动、腿部没有回到示教蹲姿后，再测试网页 `F`，最后才测试低速行走时触发动作。
+
+当前 `loop: false`，动作正常情况下会自行播放到结束。如果上肢动作没有结束或需要退出：
+
+1. 先松开所有按键，扶稳机器人。
+2. 同时按 `LT+RT+START`，尝试切回运行状态。
+3. 也可以同时按 `LT+RT+LB`。该操作可能让手臂较快归位。
+4. 如果没有响应，先完全松开按键，稍等后再同时按一次，不要连续快速乱按。
+5. 仍无法退出时，同时按 `LT+RT+B` 让机器人蹲下并重新开始控制流程。执行前必须扶住机器人，避免腿部卸力或姿态切换时摔倒。
+
+这些组合键会切换机器人整体控制状态，不是只停止手臂的独立急停。网页 `Space` 主要停止移动输入，不能保证终止正在执行的上肢轨迹。
 
 ## 推荐测试顺序
 

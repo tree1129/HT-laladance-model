@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 .agents/
 .codex/
+/tmp/
+/robot_action_config/cheer.boost
+/robot_action_config/laladance.boost

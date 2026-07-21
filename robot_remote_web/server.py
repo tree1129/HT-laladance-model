@@ -124,8 +124,9 @@ KEY_TO_JOY = {
     "start": {"buttons": {7: 1}},
     "l": {"buttons": {9: 1}},
     "r": {"buttons": {10: 1}},
-    "lt": {"axes": {2: 1.0}},
-    "rt": {"axes": {5: 1.0}},
+    # Xbox-style ROS Joy reports triggers as +1 when released and -1 when pressed.
+    "lt": {"axes": {2: -1.0}},
+    "rt": {"axes": {5: -1.0}},
     "dpl": {"axes": {6: -1.0}},
     "dpr": {"axes": {6: 1.0}},
     "dpu": {"axes": {7: 1.0}},

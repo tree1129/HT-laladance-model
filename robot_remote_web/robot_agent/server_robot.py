@@ -32,6 +32,7 @@ HOST = CONFIG["server"]["host"]
 PORT = CONFIG["server"]["port"]
 ROBOT_INFO = CONFIG.get("robot", {})
 PATHS_CONFIG = CONFIG.get("paths", {})
+ACTION_KEY_OVERRIDES = CONFIG.get("action_keys", {})
 
 KEY_TO_JOY = {
     "a": {"buttons": {0: 1}},
@@ -45,8 +46,9 @@ KEY_TO_JOY = {
     "center": {"buttons": {8: 1}},
     "l": {"buttons": {9: 1}},
     "r": {"buttons": {10: 1}},
-    "lt": {"axes": {2: 1.0}},
-    "rt": {"axes": {5: 1.0}},
+    # Xbox-style ROS Joy reports triggers as +1 when released and -1 when pressed.
+    "lt": {"axes": {2: -1.0}},
+    "rt": {"axes": {5: -1.0}},
     "dpl": {"axes": {6: -1.0}},
     "dpr": {"axes": {6: 1.0}},
     "dpu": {"axes": {7: 1.0}},
@@ -134,28 +136,59 @@ class RobotControlBridge:
         self._motion_axes = [0.0] * 8
         self._motion_active = False
         self._motion_deadline = 0.0
+        self._motion_stop_frames = 0
+        self._action_axes = {}
+        self._action_buttons = {}
+        self._action_frames_remaining = 0
+        self._action_release_pending = False
         self._motion_thread = threading.Thread(target=self._publish_motion_loop, daemon=True)
         self._motion_thread.start()
 
     def _publish_motion_loop(self):
         rate = rospy.Rate(16)
         while not rospy.is_shutdown():
-            expired = False
-            with self._motion_lock:
-                if self._motion_active and time.monotonic() >= self._motion_deadline:
-                    self._motion_active = False
-                    self._motion_axes = [0.0] * 8
-                    expired = True
-                active = self._motion_active
-                axes = list(self._motion_axes)
-
-            if active or expired:
+            should_publish, axes, buttons = self._compose_next_joy()
+            if should_publish:
                 msg = Joy()
                 msg.header.stamp = rospy.Time.now()
                 msg.axes = axes
-                msg.buttons = [0] * 11
+                msg.buttons = buttons
                 self.joy_pub.publish(msg)
             rate.sleep()
+
+    def _compose_next_joy(self):
+        expired = False
+        with self._motion_lock:
+            if self._motion_active and time.monotonic() >= self._motion_deadline:
+                self._motion_active = False
+                self._motion_axes = [0.0] * 8
+                self._motion_stop_frames = max(self._motion_stop_frames, 1)
+                expired = True
+
+            motion_active = self._motion_active
+            axes = list(self._motion_axes)
+            buttons = [0] * 11
+
+            action_active = self._action_frames_remaining > 0
+            if action_active:
+                for idx, value in self._action_axes.items():
+                    axes[idx] = value
+                for idx, value in self._action_buttons.items():
+                    buttons[idx] = value
+                self._action_frames_remaining -= 1
+                if self._action_frames_remaining == 0:
+                    self._action_release_pending = True
+
+            release_action = not action_active and self._action_release_pending
+            if release_action:
+                self._action_release_pending = False
+
+            stop_active = self._motion_stop_frames > 0
+            if stop_active:
+                self._motion_stop_frames -= 1
+
+        should_publish = motion_active or expired or stop_active or action_active or release_action
+        return should_publish, axes, buttons
 
     @staticmethod
     def movement_axes(vx, vy, wz):
@@ -171,6 +204,7 @@ class RobotControlBridge:
             self._motion_axes = axes
             self._motion_active = True
             self._motion_deadline = time.monotonic() + max(0.2, float(timeout))
+            self._motion_stop_frames = 0
         return {"ok": True, "axes": axes, "timeout": timeout}
 
     def stop_motion(self):
@@ -178,7 +212,8 @@ class RobotControlBridge:
             self._motion_active = False
             self._motion_axes = [0.0] * 8
             self._motion_deadline = 0.0
-        return self.publish_joy(repeat=2)
+            self._motion_stop_frames = 2
+        return {"ok": True, "axes": [0.0] * 8, "buttons": [0] * 11, "repeat": 2}
 
     def publish_joy(self, axes=None, buttons=None, repeat=1):
         axes = axes or [0.0] * 8
@@ -207,17 +242,29 @@ class RobotControlBridge:
         return self.publish_joy(buttons=buttons, repeat=3)
 
     def trigger_action_keys(self, keys):
-        axes = [0.0] * 8
-        buttons = [0] * 11
+        action_axes = {}
+        action_buttons = {}
+        recognized_keys = []
         for key in keys:
             mapping = KEY_TO_JOY.get(key.lower())
             if not mapping:
                 continue
+            recognized_keys.append(key.lower())
             for idx, value in mapping.get("axes", {}).items():
-                axes[idx] = value
+                action_axes[idx] = value
             for idx, value in mapping.get("buttons", {}).items():
-                buttons[idx] = value
-        return self.publish_joy(axes=axes, buttons=buttons, repeat=5)
+                action_buttons[idx] = value
+
+        if not recognized_keys:
+            return {"ok": False, "error": "No valid virtual controller keys"}
+
+        with self._motion_lock:
+            self._action_axes = action_axes
+            self._action_buttons = action_buttons
+            self._action_frames_remaining = 5
+            self._action_release_pending = False
+
+        return {"ok": True, "keys": recognized_keys, "frames": 5}
 
     def action_key_profiles(self, name):
         matches = []
@@ -232,11 +279,14 @@ class RobotControlBridge:
 
     def run_named_action(self, name):
         keys = self.action_key_profiles(name)
-        if not keys:
+        selected_key = ACTION_KEY_OVERRIDES.get(name) or (keys[0] if keys else "")
+        if not selected_key:
             return {"ok": False, "error": f"未找到动作按键映射: {name}"}
-        first = keys[0]
-        tokens = [token.strip().lower() for token in first.split("+") if token.strip()]
-        return self.trigger_action_keys(tokens)
+        tokens = [token.strip().lower() for token in selected_key.split("+") if token.strip()]
+        result = self.trigger_action_keys(tokens)
+        result["name"] = name
+        result["key"] = selected_key
+        return result
 
     def run_choreography(self):
         try:

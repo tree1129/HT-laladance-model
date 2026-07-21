@@ -192,3 +192,70 @@ node --check robot_remote_web/robot_agent/static/app.js
 - 旧路径关键字搜索无结果。
 - 从 `robot_remote_web` 目录直接启动 `server.py` 后，`/api/config` 返回 `200`。
 - `/api/config` 返回给浏览器的机器人字段不包含 `password`。
+
+## 2026-07-19 啦啦操动作与行走并发输入
+
+### 本次目标
+
+用网页按钮或键盘 `F` 触发一次 `laladance.boost`，动作自行播放到归位；动作播放期间继续响应 `W/A/S/D/Q/E`。
+
+### 实现原理
+
+- `laladance` 固定映射到虚拟手柄组合键 `RT+X`。
+- 网页只发送一次动作触发，不循环触发 `.boost`。
+- 机器人端用同一个 16 Hz Joy 循环合并行走摇杆值和短暂的动作组合键。
+- 动作组合键发送 5 帧后再发送释放帧，行走摇杆值在此过程中保持不变。
+- `.boost` 仍由机器人官方动作系统加载，网页服务不直接解析动作文件。
+
+### 动作文件位置
+
+```text
+/home/hightorque/sim2real_master/install/share/sim2real/action_config/laladance.boost
+```
+
+在同一安装目录下的 `config/pi_plus_22dof/base_waypoint.yaml` 中，把预留的 `RT+X` 动作项配置为 `laladance.boost`。修改后重启机器人，先用真实手柄 `RT+X` 验证，再测试网页按钮和键盘 `F`。
+
+### 已执行检查
+
+```text
+python -m py_compile robot_remote_web/robot_agent/server_robot.py
+node --check robot_remote_web/robot_agent/static/app.js
+git diff --check
+```
+
+另外使用假 ROS 发布器验证：按住 W 时触发 `RT+X`，Joy 消息同时包含前进轴、RT 轴和 X 按钮；组合键释放后前进轴保持不变。
+
+### 仍需真机验证
+
+- `RT+X` 是否已正确绑定到 `laladance.boost`。
+- `.boost` 是否只控制适合行走时执行的上肢关节。
+- 上肢动作幅度和速度是否会让实际重心超出支撑范围。
+
+## 2026-07-20 啦啦操触发与循环问题
+
+### 现象和根因
+
+- 网页按 `F` 后控制器报告 `small_kick`：虚拟手柄把 RT 按下值写成了 `+1.0`。Xbox 风格 ROS Joy 中扳机通常是松开 `+1.0`、按下 `-1.0`，因此控制器只识别到了 `X`。
+- 啦啦操持续循环：`base_waypoint.yaml` 中 `laladance.loop` 被配置为 `true`。
+- 播放时机器人蹲下：Teach 录制轨迹包含录制时的下肢姿态，不能默认当作只控制上肢的动作。
+- 替换文件后仍播放旧动作：官方风格化动作配置流程要求替换 `.boost` 后重启设备，让动作控制程序重新加载文件。
+
+### 本次修改
+
+- 虚拟手柄 LT/RT 按下值改为 `-1.0`。
+- `laladance.loop` 改为 `false`，一次触发只播放一次。
+- 在真机确认 `.boost` 的关节范围前，不进行“行走 + Teach 动作”组合测试。
+
+## 2026-07-21 Teach 全身轨迹转换为上肢轨迹
+
+### 文件对比结论
+
+- 官方 `cheer.boost` 是 Boost 文本归档，类型为 `arm_joint`，共 23 帧，每帧 8 个手臂关节值。
+- Teach 生成的 `laladance.boost` 类型为 `all`，共 320 帧，每帧 22 个全身关节值。
+- `laladance` 的第 0-11 列是下肢，第 12-19 列是手臂，第 20-21 列是头部。下肢列虽然几乎不变，但固定在录制时的蹲姿，因此播放时会覆盖行走策略。
+
+### 转换方案
+
+新增 `robot_action_config/convert_all_to_arm_joint.py`，从每个 22 维轨迹点中提取第 12-19 列，生成类型为 `arm_joint` 的 8 维轨迹。原始 `laladance.boost` 保持不变，转换结果保存为 `laladance_arm.boost`。
+
+`base_waypoint.yaml` 中的 `laladance.path` 改为 `action_config/laladance_arm.boost`。真机部署后先在原地有人保护的条件下测试，再尝试低速行走。

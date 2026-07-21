@@ -265,6 +265,7 @@ function normalizeKeyCode(event) {
   if (event.code === "Space") return "Space";
   if (event.code === "KeyR") return "KeyR";
   if (event.code === "KeyC") return "KeyC";
+  if (event.code === "KeyF") return "KeyF";
   return keyMoveMap[event.code] ? event.code : "";
 }
 
@@ -277,6 +278,7 @@ function bindKeyboard() {
     if (code === "Space") return emergencyStop("空格急停");
     if (code === "KeyR" && !event.repeat) return toggleMarchMode();
     if (code === "KeyC" && !event.repeat) return runNamedAction("cheer", "双手欢呼");
+    if (code === "KeyF" && !event.repeat) return runNamedAction("laladance", "啦啦操");
     if (event.repeat || state.pressedKeys.has(code)) return;
     if (!state.wakeAttempted) await wakeRobot();
     if (state.marchLoop) stopMarchLoop();
@@ -286,7 +288,7 @@ function bindKeyboard() {
 
   window.addEventListener("keyup", (event) => {
     const code = normalizeKeyCode(event);
-    if (!code || ["Space", "KeyR", "KeyC"].includes(code)) return;
+    if (!code || ["Space", "KeyR", "KeyC", "KeyF"].includes(code)) return;
     if (!state.pressedKeys.has(code)) return;
     state.pressedKeys.delete(code);
     refreshMoveLoop();
@@ -317,6 +319,7 @@ function bindEvents() {
   document.getElementById("stop-btn").addEventListener("click", () => emergencyStop("急停按钮"));
   document.getElementById("choreo-btn").addEventListener("click", () => runChoreography());
   document.getElementById("cheer-btn").addEventListener("click", () => runNamedAction("cheer", "双手欢呼"));
+  document.getElementById("laladance-btn").addEventListener("click", () => runNamedAction("laladance", "啦啦操"));
 }
 
 bindEvents();

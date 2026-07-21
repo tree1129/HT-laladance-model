@@ -4,12 +4,15 @@
     "port": 8766
   },
   "robot": {
-    "host": "192.168.43.44",
+    "host": "192.168.18.114",
     "user": "hightorque"
   },
+  "action_keys": {
+    "laladance": "rt+x"
+  },
   "paths": {
-    "base_policy": "/home/hightorque/sim2real_master/src/sim2real/action_config/config/pi_plus_22dof/base_policy.yaml",
-    "base_waypoint": "/home/hightorque/sim2real_master/src/sim2real/action_config/config/pi_plus_22dof/base_waypoint.yaml",
-    "custom_action": "/home/hightorque/sim2real_master/src/sim2real/action_config/config/pi_plus_22dof/custom_action.yaml"
+    "base_policy": "/home/hightorque/sim2real_master/install/share/sim2real/action_config/config/pi_plus_22dof/base_policy.yaml",
+    "base_waypoint": "/home/hightorque/sim2real_master/install/share/sim2real/action_config/config/pi_plus_22dof/base_waypoint.yaml",
+    "custom_action": "/home/hightorque/sim2real_master/install/share/sim2real/action_config/config/pi_plus_22dof/custom_action.yaml"
   }
 }

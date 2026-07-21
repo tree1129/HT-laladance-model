@@ -15,13 +15,13 @@
 默认配置里的机器人地址是：
 
 ```text
-192.168.43.44
+192.168.18.114
 ```
 
 在电脑 PowerShell 里先检查网络：
 
 ```powershell
-ping 192.168.43.44
+ping 192.168.18.114
 ```
 
 如果 ping 不通，先处理网络，不要继续跑控制程序。
@@ -29,7 +29,7 @@ ping 192.168.43.44
 然后检查 SSH：
 
 ```powershell
-ssh hightorque@192.168.43.44
+ssh hightorque@192.168.18.114
 ```
 
 能登录后，再确认机器人端 ROS 和官方控制程序是否已经按官方流程启动。
@@ -42,7 +42,7 @@ ssh hightorque@192.168.43.44
 
 ```powershell
 cd <你的项目目录>\robot_remote_web
-.\deploy_robot_agent.ps1 192.168.43.44 hightorque
+.\deploy_robot_agent.ps1 192.168.18.114 hightorque
 ```
 
 在机器人上运行：
@@ -55,7 +55,7 @@ bash start_robot_agent.sh
 然后电脑浏览器打开：
 
 ```text
-http://192.168.43.44:8766
+http://192.168.18.114:8766
 ```
 
 备用方案：电脑端 SSH 代理。

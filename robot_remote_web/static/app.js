@@ -29,7 +29,7 @@ const keyMoveMap = {
 };
 
 const localApiBase = window.location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
-const robotApiBase = "http://192.168.43.44:8766";
+const robotApiBase = "http://192.168.18.114:8766";
 
 function log(message, data) {
   const el = document.getElementById("log-output");
