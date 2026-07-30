@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.idea/
+robot_remote_web/.idea/
+.agents/
+.codex/
+/tmp/
+/robot_action_config/cheer.boost
+/robot_action_config/laladance.boost

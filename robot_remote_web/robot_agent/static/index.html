@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HT Pi Plus 机器人端遥控器</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">HT Pi Plus On Robot</p>
+          <h1>机器人端遥控器</h1>
+          <p class="subtitle">页面和控制接口运行在机器人本机，浏览器访问机器人 IP 即可控制。先验证急停，再做低速移动和动作测试。</p>
+        </div>
+        <div class="status-card">
+          <div class="status-line"><span>服务</span><strong id="robot-host">机器人本机</strong></div>
+          <div class="status-line"><span>控制链路</span><strong id="bridge-status">机器人本机 Joy</strong></div>
+          <div class="status-line"><span>状态</span><strong id="status-text">就绪</strong></div>
+          <div class="hero-actions">
+            <button id="cheer-btn" class="hero-btn accent">双手欢呼</button>
+            <button id="laladance-btn" class="hero-btn accent">lala01 上肢动作（F）</button>
+            <button id="choreo-btn" class="hero-btn">六段移动编排（间隔5秒）</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>方向控制</h2>
+            <div class="quick-actions">
+              <button id="wake-btn" class="ghost">唤醒运动模式</button>
+              <button id="stop-btn" class="ghost danger">急停</button>
+            </div>
+          </div>
+          <div class="keyboard-hint">
+            <span><code>W/A/S/D</code> 前后左右</span>
+            <span><code>Q/E</code> 转向</span>
+            <span><code>R</code> 安全原地踏步</span>
+            <span><code>Space</code> 急停</span>
+            <span><code>C</code> 双手欢呼</span>
+            <span><code>F</code> lala01 上肢动作</span>
+          </div>
+          <div class="drive-pad">
+            <button data-move="forward" class="pad-btn">低速前进</button>
+            <button data-move="left" class="pad-btn">低速左移</button>
+            <button data-move="stop" class="pad-btn center">停止</button>
+            <button data-move="right" class="pad-btn">低速右移</button>
+            <button data-move="backward" class="pad-btn">低速后退</button>
+            <button data-move="turn-left" class="pad-btn slim">低速左转</button>
+            <button data-move="turn-right" class="pad-btn slim">低速右转</button>
+            <button data-move="march-toggle" id="march-btn" class="pad-btn accent wide">安全原地踏步</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>动作库</h2>
+            <span class="badge" id="action-count">0</span>
+          </div>
+          <div class="library-block">
+            <h3>策略动作</h3>
+            <div id="policy-list" class="action-list"></div>
+          </div>
+          <div class="library-block">
+            <h3>单段动作</h3>
+            <div id="waypoint-list" class="action-list"></div>
+          </div>
+          <div class="library-block">
+            <h3>串联动作</h3>
+            <div id="series-list" class="action-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel composer-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Custom Timeline</p>
+            <h2>自定义动作编排</h2>
+          </div>
+          <div class="composer-actions">
+            <button id="timeline-play" class="ghost primary">播放编排</button>
+            <button id="timeline-stop" class="ghost danger">停止编排</button>
+            <button id="timeline-clear" class="ghost">清空</button>
+          </div>
+        </div>
+        <p class="composer-help">串联会自动接在上一段之后；同时会从当前时间点开始，可让上肢动作与移动同步执行。移动段之间不能重叠。</p>
+
+        <div class="composer-toolbar">
+          <label>
+            添加内容
+            <select id="timeline-kind">
+              <option value="action">动作库动作</option>
+              <option value="move">移动</option>
+            </select>
+          </label>
+          <label id="timeline-action-wrap">
+            动作
+            <select id="timeline-action"></select>
+          </label>
+          <label id="timeline-move-wrap" hidden>
+            移动
+            <select id="timeline-move">
+              <option value="forward">向前</option>
+              <option value="backward">向后</option>
+              <option value="left">向左</option>
+              <option value="right">向右</option>
+              <option value="turn-left">向左旋转</option>
+              <option value="turn-right">向右旋转</option>
+            </select>
+          </label>
+          <label>
+            持续时间（秒）
+            <input id="timeline-duration" type="number" min="0.2" max="60" step="0.1" value="2">
+          </label>
+          <label>
+            添加方式
+            <select id="timeline-mode">
+              <option value="serial">串联进行</option>
+              <option value="parallel">同时进行</option>
+            </select>
+          </label>
+          <button id="timeline-add" class="hero-btn accent composer-add">加入时间轴</button>
+        </div>
+
+        <div class="timeline-summary">
+          <strong id="timeline-total">总时长 0.0 秒</strong>
+          <span id="timeline-state">尚未编排</span>
+        </div>
+        <div class="timeline-viewport">
+          <div id="timeline-ruler" class="timeline-ruler"></div>
+          <div id="timeline-track" class="timeline-track">
+            <div id="timeline-playhead" class="timeline-playhead"></div>
+            <p id="timeline-empty" class="timeline-empty">从动作库或移动控制中添加第一段</p>
+          </div>
+        </div>
+        <div id="timeline-list" class="timeline-list"></div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-head">
+          <h2>执行日志</h2>
+        </div>
+        <pre id="log-output"></pre>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
