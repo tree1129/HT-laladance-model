@@ -10,6 +10,8 @@ const state = {
   moveRequestInFlight: false,
   timelineItems: [],
   timelineTimer: null,
+  fleetMoveTimer: null,
+  fleetOnline: new Set(),
 };
 
 const moveMap = {
@@ -39,6 +41,12 @@ const moveLabels = {
   "turn-left": "向左旋转",
   "turn-right": "向右旋转",
 };
+
+const fleetRobots = [
+  { name: "机器人 1", host: "192.168.102.212" },
+  { name: "机器人 2", host: "192.168.102.169" },
+  { name: "机器人 3", host: "192.168.102.133" },
+];
 
 function log(message, data) {
   const el = document.getElementById("log-output");
@@ -119,11 +127,143 @@ async function loadConfig() {
   renderActionList("waypoint-list", state.actions.multi_waypoint_config || [], "单段动作");
   renderActionList("series-list", state.actions.series_waypoint_config || [], "串联动作");
   populateTimelineActions();
+  populateFleetActions();
   setBridgeStatus("机器人本机 Joy");
   if (data.action_load_error || state.actions.load_error) {
     log("动作库未加载，走路/停止仍可测试", data.action_load_error || state.actions.load_error);
   } else {
     log("动作库已加载", state.actions.production_profiles || []);
+  }
+}
+
+function populateFleetActions() {
+  const select = document.getElementById("fleet-action");
+  select.innerHTML = allLibraryActions()
+    .map((item) => `<option value="${item.name}">${item.name} · ${item.remark || "动作"}</option>`)
+    .join("");
+}
+
+function selectedFleetHosts(onlineOnly = true) {
+  return [...document.querySelectorAll("#fleet-robots input:checked")]
+    .map((input) => input.value)
+    .filter((host) => !onlineOnly || state.fleetOnline.has(host));
+}
+
+async function fleetRequest(host, path, payload = null, method = "POST", timeout = 2500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const options = { method, headers: {}, signal: controller.signal };
+    if (payload !== null) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(payload);
+    }
+    const response = await fetch(`http://${host}:8766${path}`, options);
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || "请求失败");
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshFleetStatus() {
+  document.getElementById("fleet-result").textContent = "正在检测三台机器人…";
+  const checks = await Promise.allSettled(
+    fleetRobots.map((robot) => fleetRequest(robot.host, "/api/config", null, "GET"))
+  );
+  state.fleetOnline.clear();
+  checks.forEach((result, index) => {
+    const robot = fleetRobots[index];
+    const badge = document.querySelector(`[data-health="${robot.host}"]`);
+    const online = result.status === "fulfilled";
+    if (online) state.fleetOnline.add(robot.host);
+    badge.className = `robot-health ${online ? "online" : "offline"}`;
+    badge.textContent = online ? "在线" : "离线";
+  });
+  document.getElementById("fleet-result").textContent =
+    `${state.fleetOnline.size} / ${fleetRobots.length} 台在线`;
+}
+
+async function runFleetCommand(path, payload, label, options = {}) {
+  const hosts = selectedFleetHosts(options.includeOffline !== false);
+  if (!hosts.length) {
+    document.getElementById("fleet-result").textContent = "请至少勾选一台机器人";
+    return { ok: false, succeeded: [], failed: [] };
+  }
+  const results = await Promise.allSettled(
+    hosts.map((host) => fleetRequest(host, path, payload, "POST", options.timeout || 3000))
+  );
+  const succeeded = hosts.filter((_, index) => results[index].status === "fulfilled");
+  const failed = hosts.filter((_, index) => results[index].status === "rejected");
+  document.getElementById("fleet-result").textContent =
+    `${label}：成功 ${succeeded.length} 台${failed.length ? `，失败 ${failed.length} 台（${failed.join("、")}）` : ""}`;
+  return { ok: failed.length === 0, succeeded, failed };
+}
+
+function stopFleetMoveLoop() {
+  if (state.fleetMoveTimer) clearInterval(state.fleetMoveTimer);
+  state.fleetMoveTimer = null;
+}
+
+async function fleetStop(label = "三机急停") {
+  stopFleetMoveLoop();
+  const hosts = selectedFleetHosts(false);
+  if (!hosts.length) return;
+  const results = await Promise.allSettled(
+    hosts.flatMap((host) => [
+      fleetRequest(host, "/api/timeline/stop", {}, "POST", 1800),
+      fleetRequest(host, "/api/stop", {}, "POST", 1800),
+    ])
+  );
+  const failures = results.filter((result) => result.status === "rejected").length;
+  document.getElementById("fleet-result").textContent =
+    failures ? `${label}已发送，${failures} 个请求失败` : `${label}已发送到 ${hosts.length} 台`;
+}
+
+function startFleetMove(kind) {
+  stopFleetMoveLoop();
+  const vector = moveMap[kind];
+  const tick = () => runFleetCommand(
+    "/api/move",
+    { ...vector, timeout: 0.7 },
+    `同步${moveLabels[kind]}`,
+    { timeout: 1800 }
+  );
+  tick();
+  state.fleetMoveTimer = setInterval(tick, 240);
+}
+
+async function runFleetAction() {
+  const name = document.getElementById("fleet-action").value;
+  if (!name) return;
+  await runFleetCommand("/api/action", { name }, `同步动作 ${name}`);
+}
+
+async function runFleetTimeline() {
+  if (!state.timelineItems.length) {
+    document.getElementById("fleet-result").textContent = "请先在下方时间轴添加编排";
+    return;
+  }
+  await fleetStop("时间轴播放前停止");
+  await runFleetCommand(
+    "/api/timeline",
+    { items: timelinePayload() },
+    "同步时间轴",
+    { timeout: 3000 }
+  );
+}
+
+async function runRobotOneCheerAction(name) {
+  const result = document.getElementById("cheer-module-result");
+  result.textContent = `正在向机器人 1 发送 ${name}…`;
+  try {
+    await fleetRequest("192.168.102.212", "/api/action", { name }, "POST", 3000);
+    result.textContent = `${name} 已发送到机器人 1`;
+    setStatus(`${name} 已发送`);
+  } catch (err) {
+    result.textContent = `${name} 发送失败：${err.message}`;
+    log(`机器人 1 啦啦操动作失败: ${name}`, err.message);
   }
 }
 
@@ -509,7 +649,10 @@ function bindKeyboard() {
     refreshMoveLoop();
   });
 
-  window.addEventListener("blur", () => emergencyStop("窗口失焦自动停止"));
+  window.addEventListener("blur", () => {
+    emergencyStop("窗口失焦自动停止");
+    if (state.fleetMoveTimer) fleetStop("窗口失焦三机停止");
+  });
 }
 
 function bindEvents() {
@@ -555,6 +698,34 @@ function bindEvents() {
     renderTimeline();
     document.getElementById("timeline-state").textContent = "尚未编排";
   });
+  document.getElementById("fleet-select-all").addEventListener("click", () => {
+    document.querySelectorAll("#fleet-robots input").forEach((input) => { input.checked = true; });
+    document.getElementById("fleet-result").textContent = "已选择三台机器人";
+  });
+  document.getElementById("fleet-refresh").addEventListener("click", refreshFleetStatus);
+  document.getElementById("fleet-wake").addEventListener("click", () => {
+    runFleetCommand("/api/wake", {}, "同步唤醒");
+  });
+  document.getElementById("fleet-stop").addEventListener("click", () => fleetStop());
+  document.getElementById("fleet-run-action").addEventListener("click", runFleetAction);
+  document.getElementById("fleet-run-timeline").addEventListener("click", runFleetTimeline);
+  document.querySelectorAll("[data-fleet-move]").forEach((button) => {
+    const kind = button.dataset.fleetMove;
+    button.addEventListener("mousedown", () => startFleetMove(kind));
+    button.addEventListener("mouseup", () => fleetStop("松开群控按钮停止"));
+    button.addEventListener("mouseleave", () => {
+      if (state.fleetMoveTimer) fleetStop("离开群控按钮停止");
+    });
+    button.addEventListener("touchstart", (event) => {
+      event.preventDefault();
+      startFleetMove(kind);
+    }, { passive: false });
+    button.addEventListener("touchend", () => fleetStop("松开群控按钮停止"));
+    button.addEventListener("touchcancel", () => fleetStop("群控触控取消"));
+  });
+  document.querySelectorAll("[data-cheer-action]").forEach((button) => {
+    button.addEventListener("click", () => runRobotOneCheerAction(button.dataset.cheerAction));
+  });
 }
 
 bindEvents();
@@ -565,3 +736,4 @@ loadConfig().catch((err) => {
   setStatus("初始化失败");
   log("初始化失败", err.message);
 });
+refreshFleetStatus();

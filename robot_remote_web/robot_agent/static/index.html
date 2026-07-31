@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>HT Pi Plus 机器人端遥控器</title>
+    <title>机器人啦啦操自主化平台</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -11,7 +11,7 @@
       <section class="hero">
         <div>
           <p class="eyebrow">HT Pi Plus On Robot</p>
-          <h1>机器人端遥控器</h1>
+          <h1>机器人啦啦操自主化平台</h1>
           <p class="subtitle">页面和控制接口运行在机器人本机，浏览器访问机器人 IP 即可控制。先验证急停，再做低速移动和动作测试。</p>
         </div>
         <div class="status-card">
@@ -24,6 +24,27 @@
             <button id="choreo-btn" class="hero-btn">六段移动编排（间隔5秒）</button>
           </div>
         </div>
+      </section>
+
+      <section class="panel cheer-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Cheerleading Actions · Robot 1</p>
+            <h2>啦啦操动作</h2>
+          </div>
+          <span class="badge">机器人 1</span>
+        </div>
+        <p class="composer-help">以下动作固定发送到第一台机器人（192.168.102.212）。均为上肢 8 关节动作，可与下方移动或时间轴组合使用。</p>
+        <div class="cheer-action-grid">
+          <button data-cheer-action="lala01" class="cheer-action-btn"><strong>lala01</strong><span>上肢动作 · 慢速</span></button>
+          <button data-cheer-action="lala02" class="cheer-action-btn"><strong>lala02</strong><span>上肢动作 · 31 帧</span></button>
+          <button data-cheer-action="lala03" class="cheer-action-btn"><strong>lala03</strong><span>上肢动作 · 17 帧</span></button>
+          <button data-cheer-action="lala04" class="cheer-action-btn"><strong>lala04</strong><span>上肢动作 · 31 帧</span></button>
+          <button data-cheer-action="lala05" class="cheer-action-btn"><strong>lala05</strong><span>上肢动作 · 31 帧</span></button>
+          <button data-cheer-action="lala06" class="cheer-action-btn"><strong>lala06</strong><span>上肢动作 · 30 帧</span></button>
+          <button data-cheer-action="lala07" class="cheer-action-btn"><strong>lala07</strong><span>上肢动作 · 36 帧</span></button>
+        </div>
+        <p id="cheer-module-result" class="fleet-result">等待选择啦啦操动作</p>
       </section>
 
       <section class="panel-grid">
@@ -73,6 +94,58 @@
             <div id="series-list" class="action-list"></div>
           </div>
         </section>
+      </section>
+
+      <section class="panel fleet-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Fleet Control</p>
+            <h2>三机同步群控</h2>
+          </div>
+          <div class="composer-actions">
+            <button id="fleet-select-all" class="ghost">全选三台</button>
+            <button id="fleet-refresh" class="ghost">刷新连接</button>
+            <button id="fleet-wake" class="ghost primary">同步唤醒</button>
+            <button id="fleet-stop" class="ghost danger">三机急停</button>
+          </div>
+        </div>
+        <p class="composer-help">只向已勾选且在线的机器人发送控制。按住方向键同步移动，松开立即停止；动作和时间轴使用并行请求同时下发。</p>
+        <div id="fleet-robots" class="fleet-robots">
+          <label class="robot-tile">
+            <input type="checkbox" value="192.168.102.212" checked>
+            <span><strong>机器人 1</strong><small>192.168.102.212</small></span>
+            <i class="robot-health pending" data-health="192.168.102.212">检测中</i>
+          </label>
+          <label class="robot-tile">
+            <input type="checkbox" value="192.168.102.169" checked>
+            <span><strong>机器人 2</strong><small>192.168.102.169</small></span>
+            <i class="robot-health pending" data-health="192.168.102.169">检测中</i>
+          </label>
+          <label class="robot-tile">
+            <input type="checkbox" value="192.168.102.133" checked>
+            <span><strong>机器人 3</strong><small>192.168.102.133</small></span>
+            <i class="robot-health pending" data-health="192.168.102.133">检测中</i>
+          </label>
+        </div>
+        <div class="fleet-controls">
+          <div class="fleet-drive">
+            <button data-fleet-move="forward" class="pad-btn">同步前进</button>
+            <button data-fleet-move="left" class="pad-btn">同步左移</button>
+            <button data-fleet-move="right" class="pad-btn">同步右移</button>
+            <button data-fleet-move="backward" class="pad-btn">同步后退</button>
+            <button data-fleet-move="turn-left" class="pad-btn slim">同步左转</button>
+            <button data-fleet-move="turn-right" class="pad-btn slim">同步右转</button>
+          </div>
+          <div class="fleet-action-box">
+            <label>
+              同步动作
+              <select id="fleet-action"></select>
+            </label>
+            <button id="fleet-run-action" class="hero-btn accent">三机同步执行动作</button>
+            <button id="fleet-run-timeline" class="hero-btn">三机同步播放当前时间轴</button>
+            <p id="fleet-result" class="fleet-result">等待连接检测</p>
+          </div>
+        </div>
       </section>
 
       <section class="panel composer-panel">
