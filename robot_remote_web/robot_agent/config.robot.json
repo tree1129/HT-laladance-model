@@ -4,11 +4,17 @@
     "port": 8766
   },
   "robot": {
-    "host": "192.168.18.114",
+    "host": "192.168.102.212",
     "user": "hightorque"
   },
   "action_keys": {
-    "laladance": "rt+x"
+    "lala01": "rt+x",
+    "lala02": "rt+dpu",
+    "lala03": "rt+dpr",
+    "lala04": "rt+dpd",
+    "lala05": "rt+dpl",
+    "lala06": "lt+dpu",
+    "lala07": "lt+dpr"
   },
   "paths": {
     "base_policy": "/home/hightorque/sim2real_master/install/share/sim2real/action_config/config/pi_plus_22dof/base_policy.yaml",

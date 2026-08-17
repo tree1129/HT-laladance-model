@@ -1,16 +1,16 @@
 {
   "robot": {
     "host_alias": "hightorques",
-    "host": "192.168.18.114",
+    "host": "192.168.102.212",
     "user": "hightorque",
-    "password": "ht"
+    "password": ""
   },
   "server": {
     "host": "127.0.0.1",
     "port": 8765
   },
   "robot_agent": {
-    "base_url": "http://192.168.18.114:8766"
+    "base_url": "http://192.168.102.212:8766"
   },
   "paths": {
     "action_config_root": "sim2real_master/src/sim2real/action_config/config/pi_plus_22dof",

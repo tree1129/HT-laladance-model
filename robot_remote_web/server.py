@@ -24,6 +24,7 @@ APP_CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 HOST = APP_CONFIG["server"]["host"]
 PORT = APP_CONFIG["server"]["port"]
 ROBOT_CONFIG = APP_CONFIG["robot"]
+ROBOT_PASSWORD = os.environ.get("HT_ROBOT_PASSWORD", ROBOT_CONFIG.get("password", ""))
 PATHS_CONFIG = APP_CONFIG.get("paths", {})
 
 
@@ -148,13 +149,13 @@ def tcl_escape(text: str) -> str:
 
 def run_ssh_command(remote_command: str):
     expect_bin = shutil.which("expect")
-    if expect_bin:
+    if expect_bin and ROBOT_PASSWORD:
         expect_script = f'''
 set timeout 20
 spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {ROBOT_CONFIG["user"]}@{ROBOT_CONFIG["host"]} "{tcl_escape(remote_command)}"
 expect {{
     "*yes/no*" {{ send "yes\\r"; exp_continue }}
-    "*assword:*" {{ send "{tcl_escape(ROBOT_CONFIG["password"])}\\r" }}
+    "*assword:*" {{ send "{tcl_escape(ROBOT_PASSWORD)}\\r" }}
 }}
 expect eof
 '''

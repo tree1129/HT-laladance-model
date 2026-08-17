@@ -8,15 +8,19 @@ const state = {
   lastMoveSignature: "",
   marchPhase: 1,
   moveRequestInFlight: false,
+  timelineItems: [],
+  timelineTimer: null,
+  fleetMoveTimer: null,
+  fleetOnline: new Set(),
 };
 
 const moveMap = {
-  forward: { vx: 0.35, vy: 0.0, wz: 0.0 },
-  backward: { vx: -0.30, vy: 0.0, wz: 0.0 },
-  left: { vx: 0.0, vy: 0.30, wz: 0.0 },
-  right: { vx: 0.0, vy: -0.30, wz: 0.0 },
-  "turn-left": { vx: 0.0, vy: 0.0, wz: 0.30 },
-  "turn-right": { vx: 0.0, vy: 0.0, wz: -0.30 },
+  forward: { vx: 0.60, vy: 0.0, wz: 0.0 },
+  backward: { vx: -0.60, vy: 0.0, wz: 0.0 },
+  left: { vx: 0.0, vy: 0.60, wz: 0.0 },
+  right: { vx: 0.0, vy: -0.60, wz: 0.0 },
+  "turn-left": { vx: 0.0, vy: 0.0, wz: 0.60 },
+  "turn-right": { vx: 0.0, vy: 0.0, wz: -0.60 },
   stop: { vx: 0.0, vy: 0.0, wz: 0.0 },
 };
 
@@ -28,6 +32,21 @@ const keyMoveMap = {
   KeyQ: "turn-left",
   KeyE: "turn-right",
 };
+
+const moveLabels = {
+  forward: "向前",
+  backward: "向后",
+  left: "向左",
+  right: "向右",
+  "turn-left": "向左旋转",
+  "turn-right": "向右旋转",
+};
+
+const fleetRobots = [
+  { name: "机器人 1", host: "192.168.102.212" },
+  { name: "机器人 2", host: "192.168.102.169" },
+  { name: "机器人 3", host: "192.168.102.133" },
+];
 
 function log(message, data) {
   const el = document.getElementById("log-output");
@@ -107,11 +126,344 @@ async function loadConfig() {
   renderActionList("policy-list", state.actions.policy_change_config || [], "策略动作");
   renderActionList("waypoint-list", state.actions.multi_waypoint_config || [], "单段动作");
   renderActionList("series-list", state.actions.series_waypoint_config || [], "串联动作");
+  populateTimelineActions();
+  populateFleetActions();
   setBridgeStatus("机器人本机 Joy");
   if (data.action_load_error || state.actions.load_error) {
     log("动作库未加载，走路/停止仍可测试", data.action_load_error || state.actions.load_error);
   } else {
     log("动作库已加载", state.actions.production_profiles || []);
+  }
+}
+
+function populateFleetActions() {
+  const select = document.getElementById("fleet-action");
+  select.innerHTML = allLibraryActions()
+    .map((item) => `<option value="${item.name}">${item.name} · ${item.remark || "动作"}</option>`)
+    .join("");
+}
+
+function selectedFleetHosts(onlineOnly = true) {
+  return [...document.querySelectorAll("#fleet-robots input:checked")]
+    .map((input) => input.value)
+    .filter((host) => !onlineOnly || state.fleetOnline.has(host));
+}
+
+async function fleetRequest(host, path, payload = null, method = "POST", timeout = 2500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const options = { method, headers: {}, signal: controller.signal };
+    if (payload !== null) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(payload);
+    }
+    const response = await fetch(`http://${host}:8766${path}`, options);
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || "请求失败");
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshFleetStatus() {
+  document.getElementById("fleet-result").textContent = "正在检测三台机器人…";
+  const checks = await Promise.allSettled(
+    fleetRobots.map((robot) => fleetRequest(robot.host, "/api/config", null, "GET"))
+  );
+  state.fleetOnline.clear();
+  checks.forEach((result, index) => {
+    const robot = fleetRobots[index];
+    const badge = document.querySelector(`[data-health="${robot.host}"]`);
+    const online = result.status === "fulfilled";
+    if (online) state.fleetOnline.add(robot.host);
+    badge.className = `robot-health ${online ? "online" : "offline"}`;
+    badge.textContent = online ? "在线" : "离线";
+  });
+  document.getElementById("fleet-result").textContent =
+    `${state.fleetOnline.size} / ${fleetRobots.length} 台在线`;
+}
+
+async function runFleetCommand(path, payload, label, options = {}) {
+  const hosts = selectedFleetHosts(options.includeOffline !== false);
+  if (!hosts.length) {
+    document.getElementById("fleet-result").textContent = "请至少勾选一台机器人";
+    return { ok: false, succeeded: [], failed: [] };
+  }
+  const results = await Promise.allSettled(
+    hosts.map((host) => fleetRequest(host, path, payload, "POST", options.timeout || 3000))
+  );
+  const succeeded = hosts.filter((_, index) => results[index].status === "fulfilled");
+  const failed = hosts.filter((_, index) => results[index].status === "rejected");
+  document.getElementById("fleet-result").textContent =
+    `${label}：成功 ${succeeded.length} 台${failed.length ? `，失败 ${failed.length} 台（${failed.join("、")}）` : ""}`;
+  return { ok: failed.length === 0, succeeded, failed };
+}
+
+function stopFleetMoveLoop() {
+  if (state.fleetMoveTimer) clearInterval(state.fleetMoveTimer);
+  state.fleetMoveTimer = null;
+}
+
+async function fleetStop(label = "三机急停") {
+  stopFleetMoveLoop();
+  const hosts = selectedFleetHosts(false);
+  if (!hosts.length) return;
+  const results = await Promise.allSettled(
+    hosts.flatMap((host) => [
+      fleetRequest(host, "/api/timeline/stop", {}, "POST", 1800),
+      fleetRequest(host, "/api/stop", {}, "POST", 1800),
+    ])
+  );
+  const failures = results.filter((result) => result.status === "rejected").length;
+  document.getElementById("fleet-result").textContent =
+    failures ? `${label}已发送，${failures} 个请求失败` : `${label}已发送到 ${hosts.length} 台`;
+}
+
+function startFleetMove(kind) {
+  stopFleetMoveLoop();
+  const vector = moveMap[kind];
+  const tick = () => runFleetCommand(
+    "/api/move",
+    { ...vector, timeout: 0.7 },
+    `同步${moveLabels[kind]}`,
+    { timeout: 1800 }
+  );
+  tick();
+  state.fleetMoveTimer = setInterval(tick, 240);
+}
+
+async function runFleetAction() {
+  const name = document.getElementById("fleet-action").value;
+  if (!name) return;
+  await runFleetCommand("/api/action", { name }, `同步动作 ${name}`);
+}
+
+async function runFleetTimeline() {
+  if (!state.timelineItems.length) {
+    document.getElementById("fleet-result").textContent = "请先在下方时间轴添加编排";
+    return;
+  }
+  await fleetStop("时间轴播放前停止");
+  await runFleetCommand(
+    "/api/timeline",
+    { items: timelinePayload() },
+    "同步时间轴",
+    { timeout: 3000 }
+  );
+}
+
+async function runRobotOneCheerAction(name) {
+  const result = document.getElementById("cheer-module-result");
+  result.textContent = `正在向机器人 1 发送 ${name}…`;
+  try {
+    await fleetRequest("192.168.102.212", "/api/action", { name }, "POST", 3000);
+    result.textContent = `${name} 已发送到机器人 1`;
+    setStatus(`${name} 已发送`);
+  } catch (err) {
+    result.textContent = `${name} 发送失败：${err.message}`;
+    log(`机器人 1 啦啦操动作失败: ${name}`, err.message);
+  }
+}
+
+function allLibraryActions() {
+  const seen = new Set();
+  return [
+    ...(state.actions?.policy_change_config || []),
+    ...(state.actions?.multi_waypoint_config || []),
+    ...(state.actions?.series_waypoint_config || []),
+  ].filter((item) => {
+    if (!item?.name || seen.has(item.name)) return false;
+    seen.add(item.name);
+    return true;
+  });
+}
+
+function populateTimelineActions() {
+  const select = document.getElementById("timeline-action");
+  select.innerHTML = allLibraryActions()
+    .map((item) => `<option value="${item.name}">${item.name} · ${item.remark || "动作"}</option>`)
+    .join("");
+}
+
+function timelineTotal() {
+  return state.timelineItems.reduce((max, item) => Math.max(max, item.start + item.duration), 0);
+}
+
+function saveTimeline() {
+  localStorage.setItem("ht-pi-custom-timeline", JSON.stringify(state.timelineItems));
+}
+
+function loadTimeline() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("ht-pi-custom-timeline") || "[]");
+    if (Array.isArray(saved)) state.timelineItems = saved.slice(0, 50);
+  } catch (_) {
+    state.timelineItems = [];
+  }
+  renderTimeline();
+}
+
+function timelineItemLabel(item) {
+  return item.type === "action" ? item.name : (moveLabels[item.name] || item.name);
+}
+
+function renderTimeline(status = null) {
+  const total = timelineTotal();
+  const scaleTotal = Math.max(10, Math.ceil(total / 5) * 5);
+  const track = document.getElementById("timeline-track");
+  const ruler = document.getElementById("timeline-ruler");
+  const list = document.getElementById("timeline-list");
+  const empty = document.getElementById("timeline-empty");
+  track.querySelectorAll(".timeline-block").forEach((node) => node.remove());
+  ruler.innerHTML = "";
+  empty.hidden = state.timelineItems.length > 0;
+
+  for (let second = 0; second <= scaleTotal; second += Math.max(1, scaleTotal / 10)) {
+    const tick = document.createElement("span");
+    tick.className = "ruler-tick";
+    tick.style.left = `${(second / scaleTotal) * 100}%`;
+    tick.textContent = `${second.toFixed(second % 1 ? 1 : 0)}s`;
+    ruler.appendChild(tick);
+  }
+
+  state.timelineItems.forEach((item) => {
+    const block = document.createElement("button");
+    block.className = `timeline-block ${item.type}`;
+    if (status?.active?.includes(item.id)) block.classList.add("active");
+    if (status?.completed?.includes(item.id)) block.classList.add("completed");
+    block.style.left = `${(item.start / scaleTotal) * 100}%`;
+    block.style.width = `${Math.max(2.5, (item.duration / scaleTotal) * 100)}%`;
+    block.textContent = `${timelineItemLabel(item)} · ${item.duration.toFixed(1)}s`;
+    block.title = `开始 ${item.start.toFixed(1)} 秒，持续 ${item.duration.toFixed(1)} 秒`;
+    track.appendChild(block);
+  });
+
+  list.innerHTML = "";
+  state.timelineItems
+    .slice()
+    .sort((a, b) => a.start - b.start)
+    .forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "timeline-row";
+      row.innerHTML = `
+        <div class="timeline-row-title">
+          <span class="timeline-dot ${item.type}"></span>
+          <span>${item.type === "action" ? "动作" : "移动"} · ${timelineItemLabel(item)}</span>
+        </div>
+        <label>开始（秒）<input data-field="start" type="number" min="0" max="120" step="0.1" value="${item.start.toFixed(1)}"></label>
+        <label>持续（秒）<input data-field="duration" type="number" min="0.2" max="60" step="0.1" value="${item.duration.toFixed(1)}"></label>
+        <button class="timeline-delete">删除</button>
+      `;
+      row.querySelectorAll("input").forEach((input) => {
+        input.addEventListener("change", () => {
+          item[input.dataset.field] = Math.max(
+            input.dataset.field === "start" ? 0 : 0.2,
+            Number(input.value) || 0
+          );
+          saveTimeline();
+          renderTimeline();
+        });
+      });
+      row.querySelector(".timeline-delete").addEventListener("click", () => {
+        state.timelineItems = state.timelineItems.filter((candidate) => candidate.id !== item.id);
+        saveTimeline();
+        renderTimeline();
+      });
+      list.appendChild(row);
+    });
+
+  document.getElementById("timeline-total").textContent = `总时长 ${total.toFixed(1)} 秒`;
+  if (!status?.running) {
+    const playhead = document.getElementById("timeline-playhead");
+    playhead.style.opacity = "0";
+  }
+}
+
+function addTimelineItem() {
+  const type = document.getElementById("timeline-kind").value;
+  const duration = Math.max(0.2, Number(document.getElementById("timeline-duration").value) || 2);
+  const mode = document.getElementById("timeline-mode").value;
+  const last = state.timelineItems[state.timelineItems.length - 1];
+  const start = mode === "parallel" && last ? last.start : timelineTotal();
+  const name = type === "action"
+    ? document.getElementById("timeline-action").value
+    : document.getElementById("timeline-move").value;
+  if (!name) return;
+  state.timelineItems.push({
+    id: `clip-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type,
+    name,
+    start,
+    duration,
+  });
+  saveTimeline();
+  renderTimeline();
+}
+
+function timelinePayload() {
+  return state.timelineItems.map((item) => ({
+    ...item,
+    vector: item.type === "move" ? moveMap[item.name] : undefined,
+  }));
+}
+
+async function pollTimeline() {
+  try {
+    const result = await requestJson("/api/timeline/status", null, "GET");
+    const status = result.timeline;
+    const total = Math.max(0.1, status.duration || timelineTotal());
+    const playhead = document.getElementById("timeline-playhead");
+    playhead.style.opacity = status.running ? "1" : "0";
+    playhead.style.left = `${Math.min(100, (status.elapsed / total) * 100)}%`;
+    document.getElementById("timeline-state").textContent = status.error
+      ? `执行错误：${status.error}`
+      : status.running
+        ? `执行中 ${status.elapsed.toFixed(1)} / ${total.toFixed(1)} 秒`
+        : "执行结束";
+    renderTimeline(status);
+    if (!status.running) {
+      clearInterval(state.timelineTimer);
+      state.timelineTimer = null;
+    }
+  } catch (err) {
+    clearInterval(state.timelineTimer);
+    state.timelineTimer = null;
+    log("读取编排进度失败", err.message);
+  }
+}
+
+async function playTimeline() {
+  if (!state.timelineItems.length) {
+    setStatus("请先添加编排片段");
+    return;
+  }
+  try {
+    emergencyStop("编排播放前停止");
+    const result = await api("/api/timeline", { items: timelinePayload() });
+    setStatus("自定义编排执行中");
+    document.getElementById("timeline-state").textContent = "编排已开始";
+    if (state.timelineTimer) clearInterval(state.timelineTimer);
+    state.timelineTimer = setInterval(pollTimeline, 200);
+    pollTimeline();
+    log("自定义编排已开始", result);
+  } catch (err) {
+    setStatus("自定义编排启动失败");
+    log("自定义编排启动失败", err.message);
+  }
+}
+
+async function stopTimeline() {
+  try {
+    await api("/api/timeline/stop");
+    if (state.timelineTimer) clearInterval(state.timelineTimer);
+    state.timelineTimer = null;
+    document.getElementById("timeline-state").textContent = "已停止";
+    renderTimeline();
+    setStatus("自定义编排已停止");
+  } catch (err) {
+    log("停止编排失败", err.message);
   }
 }
 
@@ -186,9 +538,9 @@ function getCurrentVector() {
   if (state.pressedKeys.has("KeyQ")) wz += moveMap["turn-left"].wz;
   if (state.pressedKeys.has("KeyE")) wz += moveMap["turn-right"].wz;
   return {
-    vx: Math.max(-0.30, Math.min(0.35, vx)),
-    vy: Math.max(-0.30, Math.min(0.30, vy)),
-    wz: Math.max(-0.30, Math.min(0.30, wz)),
+    vx: Math.max(-0.60, Math.min(0.60, vx)),
+    vy: Math.max(-0.60, Math.min(0.60, vy)),
+    wz: Math.max(-0.60, Math.min(0.60, wz)),
   };
 }
 
@@ -216,7 +568,7 @@ async function toggleMarchMode() {
   state.marchPhase = 1;
   document.getElementById("march-btn")?.classList.add("active");
   const tick = () => {
-    const vector = { vx: 0.02, vy: 0.0, wz: state.marchPhase > 0 ? 0.18 : -0.18 };
+    const vector = { vx: 0.10, vy: 0.0, wz: state.marchPhase > 0 ? 0.18 : -0.18 };
     state.marchPhase *= -1;
     sendVector(vector, "安全原地踏步", { force: true });
   };
@@ -275,10 +627,13 @@ function bindKeyboard() {
     if (!code) return;
     if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
     event.preventDefault();
-    if (code === "Space") return emergencyStop("空格急停");
+    if (code === "Space") {
+      stopTimeline();
+      return emergencyStop("空格急停");
+    }
     if (code === "KeyR" && !event.repeat) return toggleMarchMode();
     if (code === "KeyC" && !event.repeat) return runNamedAction("cheer", "双手欢呼");
-    if (code === "KeyF" && !event.repeat) return runNamedAction("laladance", "啦啦操");
+    if (code === "KeyF" && !event.repeat) return runNamedAction("lala01", "lala01 上肢动作");
     if (event.repeat || state.pressedKeys.has(code)) return;
     if (!state.wakeAttempted) await wakeRobot();
     if (state.marchLoop) stopMarchLoop();
@@ -294,14 +649,20 @@ function bindKeyboard() {
     refreshMoveLoop();
   });
 
-  window.addEventListener("blur", () => emergencyStop("窗口失焦自动停止"));
+  window.addEventListener("blur", () => {
+    emergencyStop("窗口失焦自动停止");
+    if (state.fleetMoveTimer) fleetStop("窗口失焦三机停止");
+  });
 }
 
 function bindEvents() {
   document.querySelectorAll("[data-move]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.dataset.move === "march-toggle") return toggleMarchMode();
-      if (btn.dataset.move === "stop") return emergencyStop("停止按钮");
+      if (btn.dataset.move === "stop") {
+        stopTimeline();
+        return emergencyStop("停止按钮");
+      }
     });
     if (btn.dataset.move && !["stop", "march-toggle"].includes(btn.dataset.move)) {
       btn.addEventListener("mousedown", () => startPointerHold(btn.dataset.move));
@@ -316,16 +677,63 @@ function bindEvents() {
     }
   });
   document.getElementById("wake-btn").addEventListener("click", () => wakeRobot());
-  document.getElementById("stop-btn").addEventListener("click", () => emergencyStop("急停按钮"));
+  document.getElementById("stop-btn").addEventListener("click", () => {
+    stopTimeline();
+    emergencyStop("急停按钮");
+  });
   document.getElementById("choreo-btn").addEventListener("click", () => runChoreography());
   document.getElementById("cheer-btn").addEventListener("click", () => runNamedAction("cheer", "双手欢呼"));
-  document.getElementById("laladance-btn").addEventListener("click", () => runNamedAction("laladance", "啦啦操"));
+  document.getElementById("laladance-btn").addEventListener("click", () => runNamedAction("lala01", "lala01 上肢动作"));
+  document.getElementById("timeline-kind").addEventListener("change", (event) => {
+    const isAction = event.target.value === "action";
+    document.getElementById("timeline-action-wrap").hidden = !isAction;
+    document.getElementById("timeline-move-wrap").hidden = isAction;
+  });
+  document.getElementById("timeline-add").addEventListener("click", addTimelineItem);
+  document.getElementById("timeline-play").addEventListener("click", playTimeline);
+  document.getElementById("timeline-stop").addEventListener("click", stopTimeline);
+  document.getElementById("timeline-clear").addEventListener("click", () => {
+    state.timelineItems = [];
+    saveTimeline();
+    renderTimeline();
+    document.getElementById("timeline-state").textContent = "尚未编排";
+  });
+  document.getElementById("fleet-select-all").addEventListener("click", () => {
+    document.querySelectorAll("#fleet-robots input").forEach((input) => { input.checked = true; });
+    document.getElementById("fleet-result").textContent = "已选择三台机器人";
+  });
+  document.getElementById("fleet-refresh").addEventListener("click", refreshFleetStatus);
+  document.getElementById("fleet-wake").addEventListener("click", () => {
+    runFleetCommand("/api/wake", {}, "同步唤醒");
+  });
+  document.getElementById("fleet-stop").addEventListener("click", () => fleetStop());
+  document.getElementById("fleet-run-action").addEventListener("click", runFleetAction);
+  document.getElementById("fleet-run-timeline").addEventListener("click", runFleetTimeline);
+  document.querySelectorAll("[data-fleet-move]").forEach((button) => {
+    const kind = button.dataset.fleetMove;
+    button.addEventListener("mousedown", () => startFleetMove(kind));
+    button.addEventListener("mouseup", () => fleetStop("松开群控按钮停止"));
+    button.addEventListener("mouseleave", () => {
+      if (state.fleetMoveTimer) fleetStop("离开群控按钮停止");
+    });
+    button.addEventListener("touchstart", (event) => {
+      event.preventDefault();
+      startFleetMove(kind);
+    }, { passive: false });
+    button.addEventListener("touchend", () => fleetStop("松开群控按钮停止"));
+    button.addEventListener("touchcancel", () => fleetStop("群控触控取消"));
+  });
+  document.querySelectorAll("[data-cheer-action]").forEach((button) => {
+    button.addEventListener("click", () => runRobotOneCheerAction(button.dataset.cheerAction));
+  });
 }
 
 bindEvents();
 bindKeyboard();
+loadTimeline();
 setBridgeStatus("机器人本机 Joy");
 loadConfig().catch((err) => {
   setStatus("初始化失败");
   log("初始化失败", err.message);
 });
+refreshFleetStatus();

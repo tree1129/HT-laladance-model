@@ -4,9 +4,33 @@
       key: "lt+rt+a"
       remark: "双手欢呼"
 
-    - name: "laladance"
+    - name: "lala01"
       key: "rt+x"
       remark: "啦啦操"
+
+    - name: "lala02"
+      key: "rt+dpu"
+      remark: "啦啦操 02"
+
+    - name: "lala03"
+      key: "rt+dpr"
+      remark: "啦啦操 03"
+
+    - name: "lala04"
+      key: "rt+dpd"
+      remark: "啦啦操 04"
+
+    - name: "lala05"
+      key: "rt+dpl"
+      remark: "啦啦操 05"
+
+    - name: "lala06"
+      key: "lt+dpu"
+      remark: "啦啦操 06"
+
+    - name: "lala07"
+      key: "lt+dpr"
+      remark: "啦啦操 07"
 
     - name: "hello"
       key: "rt+a"
@@ -52,9 +76,33 @@
       key: "rt+a"
       remark: "双手欢呼"
 
-    - name: "laladance"
+    - name: "lala01"
       key: "rt+x"
       remark: "啦啦操"
+
+    - name: "lala02"
+      key: "rt+dpu"
+      remark: "啦啦操 02"
+
+    - name: "lala03"
+      key: "rt+dpr"
+      remark: "啦啦操 03"
+
+    - name: "lala04"
+      key: "rt+dpd"
+      remark: "啦啦操 04"
+
+    - name: "lala05"
+      key: "rt+dpl"
+      remark: "啦啦操 05"
+
+    - name: "lala06"
+      key: "lt+dpu"
+      remark: "啦啦操 06"
+
+    - name: "lala07"
+      key: "lt+dpr"
+      remark: "啦啦操 07"
 
     - name: "hello"
       key: "rt+r"

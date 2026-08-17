@@ -16,12 +16,12 @@ except ModuleNotFoundError:
 
 
 CHOREOGRAPHY_SEQUENCE = [
-    {"move": {"vx": 0.03, "vy": 0.0, "wz": 0.28}, "label": "安全原地踏步左摆", "repeat": 4, "pause": 0.3},
-    {"move": {"vx": 0.03, "vy": 0.0, "wz": -0.28}, "label": "安全原地踏步右摆", "repeat": 4, "pause": 0.3},
-    {"action": "cheer", "label": "双手欢呼", "pause": 0.8},
-    {"move": {"vx": 0.10, "vy": 0.0, "wz": 0.0}, "label": "慢速前进", "repeat": 6, "pause": 0.5},
-    {"action": "cheer", "label": "双手欢呼", "pause": 0.8},
-    {"move": {"vx": 0.0, "vy": 0.0, "wz": 0.0}, "label": "停止", "repeat": 3, "pause": 0.0},
+    {"move": {"vx": 0.60, "vy": 0.0, "wz": 0.0}, "label": "向前走两步", "duration": 2.0, "pause": 5.0},
+    {"move": {"vx": -0.60, "vy": 0.0, "wz": 0.0}, "label": "向后走两步", "duration": 2.0, "pause": 5.0},
+    {"move": {"vx": 0.0, "vy": -0.60, "wz": 0.0}, "label": "向右走两步", "duration": 2.0, "pause": 5.0},
+    {"move": {"vx": 0.0, "vy": 0.60, "wz": 0.0}, "label": "向左走两步", "duration": 2.0, "pause": 5.0},
+    {"move": {"vx": 0.0, "vy": 0.0, "wz": 0.60}, "label": "向左旋转约45度", "duration": 1.31, "pause": 5.0},
+    {"move": {"vx": 0.0, "vy": 0.0, "wz": -0.60}, "label": "向右旋转约45度", "duration": 1.31, "pause": 0.0},
 ]
 
 
@@ -141,6 +141,18 @@ class RobotControlBridge:
         self._action_buttons = {}
         self._action_frames_remaining = 0
         self._action_release_pending = False
+        self._timeline_lock = threading.Lock()
+        self._timeline_cancel = threading.Event()
+        self._timeline_thread = None
+        self._timeline_status = {
+            "running": False,
+            "started_at": 0.0,
+            "elapsed": 0.0,
+            "duration": 0.0,
+            "active": [],
+            "completed": [],
+            "error": "",
+        }
         self._motion_thread = threading.Thread(target=self._publish_motion_loop, daemon=True)
         self._motion_thread.start()
 
@@ -214,6 +226,145 @@ class RobotControlBridge:
             self._motion_deadline = 0.0
             self._motion_stop_frames = 2
         return {"ok": True, "axes": [0.0] * 8, "buttons": [0] * 11, "repeat": 2}
+
+    def timeline_status(self):
+        with self._timeline_lock:
+            status = dict(self._timeline_status)
+            if status["running"]:
+                status["elapsed"] = min(
+                    status["duration"],
+                    max(0.0, time.monotonic() - status["started_at"]),
+                )
+            status["active"] = list(status["active"])
+            status["completed"] = list(status["completed"])
+            return status
+
+    def stop_timeline(self):
+        self._timeline_cancel.set()
+        self.stop_motion()
+        with self._timeline_lock:
+            self._timeline_status["running"] = False
+            self._timeline_status["active"] = []
+        return {"ok": True, "message": "编排已停止"}
+
+    def start_timeline(self, raw_items):
+        if not isinstance(raw_items, list) or not raw_items:
+            return {"ok": False, "error": "编排不能为空"}
+        if len(raw_items) > 50:
+            return {"ok": False, "error": "编排最多允许 50 段"}
+
+        items = []
+        action_names = {
+            item.get("name")
+            for section in ("policy_change_config", "multi_waypoint_config", "series_waypoint_config")
+            for item in ACTION_CATALOG.get(section, [])
+        }
+        for index, raw in enumerate(raw_items):
+            item_type = str(raw.get("type", "")).strip()
+            start = float(raw.get("start", 0.0))
+            duration = float(raw.get("duration", 1.0))
+            if item_type not in ("move", "action") or start < 0 or duration <= 0:
+                return {"ok": False, "error": f"第 {index + 1} 段参数无效"}
+            if start + duration > 120:
+                return {"ok": False, "error": "编排总时长不能超过 120 秒"}
+            item = {
+                "id": str(raw.get("id", index)),
+                "type": item_type,
+                "name": str(raw.get("name", "")).strip(),
+                "start": start,
+                "duration": duration,
+            }
+            if item_type == "action":
+                if item["name"] not in action_names:
+                    return {"ok": False, "error": f"动作库中不存在: {item['name']}"}
+            else:
+                vector = raw.get("vector") or {}
+                item["vector"] = {
+                    axis: max(-1.0, min(1.0, float(vector.get(axis, 0.0))))
+                    for axis in ("vx", "vy", "wz")
+                }
+            items.append(item)
+
+        movement_items = sorted(
+            (item for item in items if item["type"] == "move"),
+            key=lambda item: item["start"],
+        )
+        for previous, current in zip(movement_items, movement_items[1:]):
+            if current["start"] < previous["start"] + previous["duration"]:
+                return {"ok": False, "error": "移动段不能互相重叠；动作库动作可以和移动同时执行"}
+
+        self.stop_timeline()
+        previous_thread = self._timeline_thread
+        if previous_thread and previous_thread.is_alive():
+            previous_thread.join(timeout=1.0)
+        self._timeline_cancel = threading.Event()
+        total_duration = max(item["start"] + item["duration"] for item in items)
+        with self._timeline_lock:
+            self._timeline_status = {
+                "running": True,
+                "started_at": time.monotonic(),
+                "elapsed": 0.0,
+                "duration": total_duration,
+                "active": [],
+                "completed": [],
+                "error": "",
+            }
+        self._timeline_thread = threading.Thread(
+            target=self._run_timeline,
+            args=(items, self._timeline_cancel),
+            daemon=True,
+        )
+        self._timeline_thread.start()
+        return {"ok": True, "message": "自定义编排已开始", "duration": total_duration}
+
+    def _run_timeline(self, items, cancel_event):
+        started_at = time.monotonic()
+
+        def run_item(item):
+            if cancel_event.wait(max(0.0, item["start"] - (time.monotonic() - started_at))):
+                return
+            with self._timeline_lock:
+                self._timeline_status["active"].append(item["id"])
+            try:
+                if item["type"] == "action":
+                    result = self.run_named_action(item["name"])
+                    if not result.get("ok"):
+                        raise RuntimeError(result.get("error", "动作触发失败"))
+                else:
+                    vector = item["vector"]
+                    self.set_motion_target(
+                        vector["vx"], vector["vy"], vector["wz"], item["duration"]
+                    )
+                cancel_event.wait(item["duration"])
+            except Exception as exc:
+                with self._timeline_lock:
+                    self._timeline_status["error"] = str(exc)
+                cancel_event.set()
+            finally:
+                with self._timeline_lock:
+                    if item["id"] in self._timeline_status["active"]:
+                        self._timeline_status["active"].remove(item["id"])
+                    if not cancel_event.is_set():
+                        self._timeline_status["completed"].append(item["id"])
+
+        threads = [
+            threading.Thread(target=run_item, args=(item,), daemon=True)
+            for item in items
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if self._timeline_cancel is cancel_event:
+            self.stop_motion()
+        with self._timeline_lock:
+            if self._timeline_cancel is not cancel_event:
+                return
+            self._timeline_status["running"] = False
+            self._timeline_status["active"] = []
+            self._timeline_status["elapsed"] = min(
+                self._timeline_status["duration"], time.monotonic() - started_at
+            )
 
     def publish_joy(self, axes=None, buttons=None, repeat=1):
         axes = axes or [0.0] * 8
@@ -300,14 +451,17 @@ class RobotControlBridge:
                 elif "move" in step:
                     rospy.loginfo(f"编排步骤 {index}: {step['label']}")
                     move = step["move"]
-                    result = self.joy_move(
+                    duration = float(step.get("duration", 2.0))
+                    result = self.set_motion_target(
                         float(move.get("vx", 0.0)),
                         float(move.get("vy", 0.0)),
                         float(move.get("wz", 0.0)),
-                        repeat=int(step.get("repeat", 4)),
+                        timeout=duration,
                     )
                     if not result.get("ok"):
                         return {"ok": False, "error": f"编排步骤 {index} 失败: {result.get('error')}"}
+                    rospy.sleep(duration)
+                    self.stop_motion()
                 else:
                     return {"ok": False, "error": f"编排步骤 {index} 配置错误"}
 
@@ -319,6 +473,7 @@ class RobotControlBridge:
             rospy.loginfo("编排序列执行完成")
             return {"ok": True, "message": "编排执行完成", "steps": len(CHOREOGRAPHY_SEQUENCE)}
         except Exception as exc:
+            self.stop_motion()
             rospy.logerr(f"编排执行异常: {exc}")
             return {"ok": False, "error": str(exc)}
 
@@ -373,6 +528,8 @@ class Handler(BaseHTTPRequestHandler):
                     "user": ROBOT_INFO.get("user", "hightorque"),
                 },
             })
+        if path == "/api/timeline/status":
+            return self._send_json({"ok": True, "timeline": BRIDGE.timeline_status()})
         return self._send_json({"ok": False, "error": "Not found"}, 404)
 
     def do_POST(self):
@@ -416,6 +573,13 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/choreography":
                 result = BRIDGE.run_choreography()
                 return self._send_json(result, 200 if result.get("ok") else 500)
+
+            if parsed.path == "/api/timeline":
+                result = BRIDGE.start_timeline(payload.get("items"))
+                return self._send_json(result, 200 if result.get("ok") else 400)
+
+            if parsed.path == "/api/timeline/stop":
+                return self._send_json(BRIDGE.stop_timeline())
 
         return self._send_json({"ok": False, "error": "Not found"}, 404)
 

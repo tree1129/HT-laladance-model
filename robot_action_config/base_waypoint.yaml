@@ -13,9 +13,9 @@ multi_waypoint_config:
     # type5用的参数
     time_interval: 0.05 # boost文件每个点的时间间隔 * boost文件点的数量等于执行时间
 
-  - name: "laladance"
-    path: "action_config/laladance_arm.boost"
-    remark: "啦啦操"
+  - name: "lala01"
+    path: "action_config/lala01_arm.boost"
+    remark: "啦啦操 lala01（上肢）"
     type: 5
     duration: 0.013125
     # duration: 0.1
@@ -25,7 +25,79 @@ multi_waypoint_config:
     back_to_walk: true
     loop: false
     # type5用的参数
-    time_interval: 0.05 # boost文件每个点的时间间隔 * boost文件点的数量等于执行时间
+    time_interval: 0.10 # lala01 放慢：每帧间隔加倍，动作时长约为原来的 2 倍
+
+  - name: "lala02"
+    path: "action_config/lala02_arm.boost"
+    remark: "啦啦操 lala02（上肢）"
+    type: 5
+    duration: 0.013125
+    torque: 0.0
+    velocity: 0.00
+    back_to_zero: true
+    back_to_walk: true
+    loop: false
+    time_interval: 0.10
+
+  - name: "lala03"
+    path: "action_config/lala03_arm.boost"
+    remark: "啦啦操 lala03（上肢）"
+    type: 5
+    duration: 0.013125
+    torque: 0.0
+    velocity: 0.00
+    back_to_zero: true
+    back_to_walk: true
+    loop: false
+    time_interval: 0.10
+
+  - name: "lala04"
+    path: "action_config/lala04_arm.boost"
+    remark: "啦啦操 lala04（上肢）"
+    type: 5
+    duration: 0.013125
+    torque: 0.0
+    velocity: 0.00
+    back_to_zero: true
+    back_to_walk: true
+    loop: false
+    time_interval: 0.10
+
+  - name: "lala05"
+    path: "action_config/lala05_arm.boost"
+    remark: "啦啦操 lala05（上肢）"
+    type: 5
+    duration: 0.013125
+    torque: 0.0
+    velocity: 0.00
+    back_to_zero: true
+    back_to_walk: true
+    loop: false
+    time_interval: 0.10
+
+  - name: "lala06"
+    path: "action_config/lala06_arm.boost"
+    remark: "啦啦操 lala06（上肢）"
+    type: 5
+    duration: 0.013125
+    torque: 0.0
+    velocity: 0.00
+    back_to_zero: true
+    back_to_walk: true
+    loop: false
+    time_interval: 0.10
+
+  - name: "lala07"
+    path: "action_config/lala07_arm.boost"
+    remark: "啦啦操 lala07（上肢）"
+    type: 5
+    duration: 0.013125
+    torque: 0.0
+    velocity: 0.00
+    back_to_zero: true
+    back_to_walk: true
+    loop: false
+    time_interval: 0.10
 
   - name: "hello"
     path: "action_config/hello.boost"

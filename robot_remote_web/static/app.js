@@ -10,7 +10,7 @@ const state = {
 };
 
 const moveMap = {
-  forward: { vx: 0.12, vy: 0.0, wz: 0.0 },
+  forward: { vx: 0.18, vy: 0.0, wz: 0.0 },
   backward: { vx: -0.08, vy: 0.0, wz: 0.0 },
   left: { vx: 0.0, vy: 0.08, wz: 0.0 },
   right: { vx: 0.0, vy: -0.08, wz: 0.0 },
@@ -29,7 +29,7 @@ const keyMoveMap = {
 };
 
 const localApiBase = window.location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
-const robotApiBase = "http://192.168.18.114:8766";
+const robotApiBase = "http://192.168.102.212:8766";
 
 function log(message, data) {
   const el = document.getElementById("log-output");
@@ -205,7 +205,7 @@ function getCurrentVector() {
   if (state.pressedKeys.has("KeyQ")) wz += moveMap["turn-left"].wz;
   if (state.pressedKeys.has("KeyE")) wz += moveMap["turn-right"].wz;
   return {
-    vx: Math.max(-0.12, Math.min(0.12, vx)),
+    vx: Math.max(-0.12, Math.min(0.18, vx)),
     vy: Math.max(-0.08, Math.min(0.08, vy)),
     wz: Math.max(-0.35, Math.min(0.35, wz)),
   };
@@ -238,7 +238,7 @@ async function toggleMarchMode() {
   state.marchPhase = 1;
   document.getElementById("march-btn")?.classList.add("active");
   const tick = () => {
-    const vector = { vx: 0.03, vy: 0.0, wz: state.marchPhase > 0 ? 0.28 : -0.28 };
+    const vector = { vx: 0.04, vy: 0.0, wz: state.marchPhase > 0 ? 0.28 : -0.28 };
     state.marchPhase *= -1;
     sendVector(vector, "安全原地踏步", { force: true });
   };

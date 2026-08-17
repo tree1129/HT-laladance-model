@@ -85,6 +85,9 @@ http://127.0.0.1:8765
 
 注意：PC 端 SSH 代理如果没有 `expect`，会尝试免密 SSH。没有配置 SSH key 时，建议改用机器人端服务。
 
+如需让 PC 端代理通过密码登录，请在启动前设置环境变量
+`HT_ROBOT_PASSWORD`。不要把机器人密码写入 `config.json` 或提交到 Git。
+
 ## 配置文件
 
 主要配置在 `config.json`：
