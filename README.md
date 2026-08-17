@@ -6,9 +6,10 @@ HT Pi Plus / Mini Pi Plus 啦啦操演示项目，包含多机器人动作资源
 
 ## 可视化控制台
 
-网页控制台提供低速移动、急停、唤醒、原地踏步、双手欢呼和动作库触发。它通过 ROS 的 `/joy_input` 接口模拟手柄输入，避免直接控制单个电机。
+控制台提供低速移动、急停、唤醒、原地踏步、双手欢呼和动作库触发。它通过 ROS 的 `/joy_input` 接口模拟手柄输入，避免直接控制单个电机。
 
-![网页遥控器界面](docs/controller-ui.png)
+<img width="2702" height="1416" alt="image" src="https://github.com/user-attachments/assets/4b1119bc-8b86-4e30-b2b9-e1871737ad18" />
+
 
 ### 机器人端运行
 
@@ -38,3 +39,7 @@ bash start_remote.sh
 - `docs/`：机器人演示照片和可视化控制台截图。
 
 ![多机器人演示](docs/robot-demo-room.png)
+<img width="2658" height="1146" alt="image" src="https://github.com/user-attachments/assets/1c15985c-94cc-4625-bb94-53672e573110" />
+<img width="2676" height="1464" alt="image" src="https://github.com/user-attachments/assets/d28a5620-af81-49dd-a6eb-6c6702f90039" />
+
+
